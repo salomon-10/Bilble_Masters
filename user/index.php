@@ -46,7 +46,7 @@ function statusClass(string $status): string
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bible Master | Matchs en direct</title>
-    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="./index.css">
 </head>
 <body>
     <main class="shell">

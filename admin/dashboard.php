@@ -55,7 +55,7 @@ $totalMatches = $stats['Programme'] + $stats['En cours'] + $stats['Termine'];
     <div class="card">
         <h3>Scores et publication</h3>
         <p>Modifier score, statut et visibilite</p>
-        <a class="btn primary" href="set_score.php">Gerer</a>
+        <a class="btn primary" href="visibilite.html">Gerer</a>
     </div>
 </section>
 
@@ -85,7 +85,7 @@ $totalMatches = $stats['Programme'] + $stats['En cours'] + $stats['Termine'];
             </span>
             <div><?php echo ((int) $match['published'] === 1) ? 'Visible user: Oui' : 'Visible user: Non'; ?></div>
         </div>
-        <a class="btn primary" href="set_score.php">Gerer</a>
+        <a class="btn primary" href="visibilite.html">Gerer</a>
     </div>
 <?php endforeach; ?>
 </section>

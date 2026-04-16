@@ -53,30 +53,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;700&family=Plus+Jakarta+Sans:wght@500;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --ink: #1a1f24;
-            --muted: #5f6873;
-            --sand: #fbf5e8;
-            --paper: #fffdf8;
-            --teal: #0f766e;
-            --teal-strong: #115e59;
-            --danger: #b42318;
-            --line: #eadfcb;
-            --shadow: 0 16px 48px rgba(31, 41, 55, 0.18);
+            --ink: #f5f7fb;
+            --muted: rgba(245, 247, 251, 0.76);
+            --panel: rgba(11, 16, 30, 0.76);
+            --panel-strong: rgba(12, 18, 34, 0.9);
+            --line: rgba(255, 255, 255, 0.12);
+            --accent: #ffd166;
+            --accent-2: #6ee7ff;
+            --danger: #ff8b8b;
+            --shadow: 0 24px 68px rgba(0, 0, 0, 0.34);
         }
 
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
         body {
             min-height: 100vh;
-            font-family: "Outfit", "Segoe UI", sans-serif;
+            font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
             color: var(--ink);
             background:
-                radial-gradient(circle at 10% 20%, rgba(15, 118, 110, 0.18), transparent 38%),
-                radial-gradient(circle at 88% 14%, rgba(234, 88, 12, 0.2), transparent 35%),
-                linear-gradient(180deg, #fffdfa 0%, var(--sand) 100%);
+                radial-gradient(circle at 10% 20%, rgba(255, 209, 102, 0.16), transparent 34%),
+                radial-gradient(circle at 88% 14%, rgba(110, 231, 255, 0.12), transparent 32%),
+                linear-gradient(180deg, rgba(5, 8, 16, 0.5), rgba(5, 8, 16, 0.8));
             display: grid;
             place-items: center;
             padding: 24px;
+            position: relative;
+            isolation: isolate;
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: -2;
+            background:
+                linear-gradient(180deg, rgba(6, 10, 18, 0.42), rgba(6, 10, 18, 0.72)),
+                url("../img/background.png") center center / cover no-repeat;
+            transform: scale(1.02);
+        }
+
+        body::after {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            pointer-events: none;
+            background:
+                radial-gradient(circle at 20% 16%, rgba(255, 255, 255, 0.08), transparent 24%),
+                radial-gradient(circle at 82% 12%, rgba(255, 255, 255, 0.06), transparent 22%),
+                linear-gradient(180deg, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.24));
         }
 
         .login-shell {
@@ -84,16 +113,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
             display: grid;
             grid-template-columns: 1.1fr 0.9fr;
             border: 1px solid var(--line);
-            border-radius: 26px;
+            border-radius: 28px;
             overflow: hidden;
-            background: var(--paper);
+            background: var(--panel);
             box-shadow: var(--shadow);
             animation: rise 0.55s ease;
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
         }
 
         .brand-side {
             padding: 40px 34px;
-            background: linear-gradient(160deg, rgba(15, 118, 110, 0.96) 0%, rgba(17, 94, 89, 0.96) 100%);
+            background: linear-gradient(160deg, rgba(10, 16, 30, 0.92) 0%, rgba(12, 18, 34, 0.88) 100%);
             color: #f8fafc;
             display: grid;
             align-content: space-between;
@@ -101,7 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
         }
 
         .logo { font-family: "Plus Jakarta Sans", sans-serif; font-size: 1.15rem; font-weight: 700; }
-        .brand-side h1 { font-size: clamp(1.5rem, 2.4vw, 2.15rem); line-height: 1.2; margin-bottom: 12px; }
+        .brand-side h1 { font-size: clamp(1.5rem, 2.4vw, 2.15rem); line-height: 1.2; margin-bottom: 12px; color: #fff; }
         .brand-side p { color: rgba(248, 250, 252, 0.88); line-height: 1.6; }
 
         .pill { display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; border: 1px solid rgba(248, 250, 252, 0.26); border-radius: 999px; padding: 8px 12px; }
@@ -111,22 +142,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
         .form-side h2 { font-family: "Plus Jakarta Sans", sans-serif; font-size: 1.5rem; }
         .form-side .sub { color: var(--muted); line-height: 1.5; }
 
-        .alert { border: 1px solid #f7cac8; background: #fff2f2; color: var(--danger); border-radius: 12px; padding: 10px 12px; font-size: 0.93rem; }
+        .alert { border: 1px solid rgba(255, 139, 139, 0.22); background: rgba(255, 139, 139, 0.1); color: #ffd0d0; border-radius: 12px; padding: 10px 12px; font-size: 0.93rem; }
 
         form { display: grid; gap: 14px; }
         .field { display: grid; gap: 7px; }
         label { font-size: 0.92rem; font-weight: 600; }
 
         input {
-            width: 100%; border: 1px solid #d8c7aa; border-radius: 12px; padding: 12px 13px; font-size: 0.98rem;
-            background: #fffcf5; color: var(--ink); outline: none;
+            width: 100%; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; padding: 12px 13px; font-size: 0.98rem;
+            background: var(--panel-strong); color: var(--ink); outline: none;
         }
 
-        input:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14); }
+        input:focus { border-color: rgba(255, 209, 102, 0.5); box-shadow: 0 0 0 3px rgba(255, 209, 102, 0.14); }
 
         .btn {
             margin-top: 6px; border: none; border-radius: 12px; padding: 12px 14px; font-size: 0.96rem; font-weight: 700;
-            cursor: pointer; color: #fff; background: linear-gradient(135deg, var(--teal), var(--teal-strong));
+            cursor: pointer; color: #1f2937; background: linear-gradient(135deg, var(--accent), #f59e0b);
+            box-shadow: 0 10px 24px rgba(255, 209, 102, 0.2);
         }
 
         .hint { color: var(--muted); font-size: 0.86rem; }
