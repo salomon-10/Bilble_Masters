@@ -15,18 +15,18 @@
 }
 
 :root {
-    --bg-main: #1f2a44;
-    --bg-soft: #273553;
-    --bg-card: #344568;
-    --line: #3e4f73;
-    --text-main: #f8fafc;
-    --text-soft: #c7d2e3;
-    --team-a: #f4a261;
-    --team-b: #8b1e3f;
+    --bg-main: #0c1422;
+    --bg-soft: #111c30;
+    --bg-card: #17233a;
+    --line: rgba(255, 255, 255, 0.16);
+    --text-main: #f7f9fc;
+    --text-soft: #b9c6da;
+    --team-a: #ffd166;
+    --team-b: #6ee7ff;
     --ok: #22c55e;
     --warn: #ef4444;
 
-    --shadow: 0 18px 40px rgba(11, 17, 34, 0.25);
+    --shadow: 0 22px 56px rgba(0, 0, 0, 0.36);
     --r-xl: 24px;
     --r-lg: 16px;
     --r-md: 12px;
@@ -36,10 +36,35 @@ body {
     min-height: 100vh;
     font-family: "Manrope", sans-serif;
     color: var(--text-main);
+    position: relative;
+    isolation: isolate;
     background:
-        radial-gradient(circle at 10% 10%, rgba(244, 162, 97, 0.12), transparent 35%),
-        radial-gradient(circle at 90% 15%, rgba(139, 30, 63, 0.16), transparent 40%),
-        linear-gradient(150deg, #14203a 0%, var(--bg-main) 55%, #1c2740 100%);
+        radial-gradient(circle at 8% 12%, rgba(255, 209, 102, 0.14), transparent 30%),
+        radial-gradient(circle at 88% 10%, rgba(110, 231, 255, 0.12), transparent 28%),
+        linear-gradient(180deg, rgba(5, 8, 16, 0.54), rgba(5, 8, 16, 0.84));
+}
+
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    background:
+        linear-gradient(180deg, rgba(6, 10, 18, 0.42), rgba(6, 10, 18, 0.74)),
+        url("../img/background.png") center center / cover no-repeat;
+    transform: scale(1.02);
+}
+
+body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+        radial-gradient(circle at 20% 16%, rgba(255, 255, 255, 0.08), transparent 24%),
+        radial-gradient(circle at 82% 12%, rgba(255, 255, 255, 0.06), transparent 22%),
+        linear-gradient(180deg, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.24));
 }
 
 .page {
@@ -51,10 +76,12 @@ body {
 }
 
 .panel {
-    background: linear-gradient(180deg, rgba(52, 69, 104, 0.95) 0%, rgba(39, 53, 83, 0.95) 100%);
+    background: linear-gradient(180deg, rgba(23, 35, 58, 0.86) 0%, rgba(17, 28, 48, 0.9) 100%);
     border: 1px solid rgba(199, 210, 227, 0.2);
     border-radius: var(--r-xl);
     box-shadow: var(--shadow);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
 }
 
 .topbar {
@@ -201,7 +228,7 @@ body {
 }
 
 .score-main .numbers .b {
-    color: #d79ab1;
+    color: var(--team-b);
 }
 
 .vs {
@@ -260,9 +287,9 @@ body {
     font-size: 11px;
     padding: 4px 8px;
     border-radius: 999px;
-    color: #fbe6d0;
-    background: rgba(244, 162, 97, 0.2);
-    border: 1px solid rgba(244, 162, 97, 0.35);
+    color: #1f2937;
+    background: rgba(255, 209, 102, 0.88);
+    border: 1px solid rgba(255, 209, 102, 0.45);
 }
 
 .trial-body {
@@ -327,9 +354,9 @@ body {
 }
 
 .save {
-    border: 1px solid rgba(244, 162, 97, 0.45);
-    color: #ffe4ce;
-    background: rgba(244, 162, 97, 0.18);
+    border: 1px solid rgba(255, 209, 102, 0.45);
+    color: #1f2937;
+    background: rgba(255, 209, 102, 0.86);
     border-radius: 10px;
     padding: 9px 10px;
     font-size: 13px;
@@ -339,7 +366,7 @@ body {
 }
 
 .save:hover:not(:disabled) {
-    background: rgba(244, 162, 97, 0.28);
+    background: rgba(255, 209, 102, 0.98);
 }
 
 .save:disabled {
@@ -392,9 +419,9 @@ body {
     transform: translate(-50%, 16px);
     opacity: 0;
     pointer-events: none;
-    background: #12233f;
+    background: rgba(17, 28, 48, 0.94);
     color: #ecf3ff;
-    border: 1px solid rgba(34, 197, 94, 0.4);
+    border: 1px solid rgba(110, 231, 255, 0.4);
     border-radius: 10px;
     padding: 10px 14px;
     font-size: 13px;
@@ -506,14 +533,14 @@ body {
                     <div class="trial-body">
                         <div class="rows">
                             <div class="row a">
-                                <button class="btn" type="button" onclick="change(this, 'a', -1)">-</button>
+                                <button class="btn" type="button" onclick="change(this, 'a', -10)">-</button>
                                 <div class="value" data-team="a">0</div>
-                                <button class="btn" type="button" onclick="change(this, 'a', 1)">+</button>
+                                <button class="btn" type="button" onclick="change(this, 'a', 10)">+</button>
                             </div>
                             <div class="row b">
-                                <button class="btn" type="button" onclick="change(this, 'b', -1)">-</button>
+                                <button class="btn" type="button" onclick="change(this, 'b', -10)">-</button>
                                 <div class="value" data-team="b">0</div>
-                                <button class="btn" type="button" onclick="change(this, 'b', 1)">+</button>
+                                <button class="btn" type="button" onclick="change(this, 'b', 10)">+</button>
                             </div>
                         </div>
                         <button class="save" type="button" onclick="save(this)">Valider l'epreuve</button>
@@ -528,14 +555,14 @@ body {
                     <div class="trial-body">
                         <div class="rows">
                             <div class="row a">
-                                <button class="btn" type="button" onclick="change(this, 'a', -1)">-</button>
+                                <button class="btn" type="button" onclick="change(this, 'a', -10)">-</button>
                                 <div class="value" data-team="a">0</div>
-                                <button class="btn" type="button" onclick="change(this, 'a', 1)">+</button>
+                                <button class="btn" type="button" onclick="change(this, 'a', 10)">+</button>
                             </div>
                             <div class="row b">
-                                <button class="btn" type="button" onclick="change(this, 'b', -1)">-</button>
+                                <button class="btn" type="button" onclick="change(this, 'b', -10)">-</button>
                                 <div class="value" data-team="b">0</div>
-                                <button class="btn" type="button" onclick="change(this, 'b', 1)">+</button>
+                                <button class="btn" type="button" onclick="change(this, 'b', 10)">+</button>
                             </div>
                         </div>
                         <button class="save" type="button" onclick="save(this)">Valider l'epreuve</button>
@@ -550,14 +577,14 @@ body {
                     <div class="trial-body">
                         <div class="rows">
                             <div class="row a">
-                                <button class="btn" type="button" onclick="change(this, 'a', -1)">-</button>
+                                <button class="btn" type="button" onclick="change(this, 'a', -10)">-</button>
                                 <div class="value" data-team="a">0</div>
-                                <button class="btn" type="button" onclick="change(this, 'a', 1)">+</button>
+                                <button class="btn" type="button" onclick="change(this, 'a', 10)">+</button>
                             </div>
                             <div class="row b">
-                                <button class="btn" type="button" onclick="change(this, 'b', -1)">-</button>
+                                <button class="btn" type="button" onclick="change(this, 'b', -10)">-</button>
                                 <div class="value" data-team="b">0</div>
-                                <button class="btn" type="button" onclick="change(this, 'b', 1)">+</button>
+                                <button class="btn" type="button" onclick="change(this, 'b', 10)">+</button>
                             </div>
                         </div>
                         <button class="save" type="button" onclick="save(this)">Valider l'epreuve</button>
@@ -572,14 +599,14 @@ body {
                     <div class="trial-body">
                         <div class="rows">
                             <div class="row a">
-                                <button class="btn" type="button" onclick="change(this, 'a', -1)">-</button>
+                                <button class="btn" type="button" onclick="change(this, 'a', -10)">-</button>
                                 <div class="value" data-team="a">0</div>
-                                <button class="btn" type="button" onclick="change(this, 'a', 1)">+</button>
+                                <button class="btn" type="button" onclick="change(this, 'a', 10)">+</button>
                             </div>
                             <div class="row b">
-                                <button class="btn" type="button" onclick="change(this, 'b', -1)">-</button>
+                                <button class="btn" type="button" onclick="change(this, 'b', -10)">-</button>
                                 <div class="value" data-team="b">0</div>
-                                <button class="btn" type="button" onclick="change(this, 'b', 1)">+</button>
+                                <button class="btn" type="button" onclick="change(this, 'b', 10)">+</button>
                             </div>
                         </div>
                         <button class="save" type="button" onclick="save(this)">Valider l'epreuve</button>
@@ -593,14 +620,14 @@ body {
                     <div class="trial-body">
                         <div class="rows">
                             <div class="row a">
-                                <button class="btn" type="button" onclick="change(this, 'a', -1)">-</button>
+                                <button class="btn" type="button" onclick="change(this, 'a', -10)">-</button>
                                 <div class="value" data-team="a">0</div>
-                                <button class="btn" type="button" onclick="change(this, 'a', 1)">+</button>
+                                <button class="btn" type="button" onclick="change(this, 'a', 10)">+</button>
                             </div>
                             <div class="row b">
-                                <button class="btn" type="button" onclick="change(this, 'b', -1)">-</button>
+                                <button class="btn" type="button" onclick="change(this, 'b', -10)">-</button>
                                 <div class="value" data-team="b">0</div>
-                                <button class="btn" type="button" onclick="change(this, 'b', 1)">+</button>
+                                <button class="btn" type="button" onclick="change(this, 'b', 10 )">+</button>
                             </div>
                         </div>
                         <button class="save" type="button" onclick="save(this)">Valider l'epreuve</button>

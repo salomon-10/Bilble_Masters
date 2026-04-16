@@ -84,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
 
         <div class="grid">
             <section class="card form-card">
-                <h2 class="section-title"><span>Formulaire</span> Configuration du match</h2>
+                <h2 class="section-title"> Configuration du match</h2>
 
                 <?php if ($message !== ''): ?>
                     <div class="message <?php echo $messageType === 'success' ? 'success' : 'error'; ?>" style="display:block;" role="alert">
@@ -152,7 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
             </section>
 
             <aside class="card result-card">
-                <h2 class="section-title"><span>Resultat</span> Match cree</h2>
+                <h2 class="section-title"> Match cree</h2>
                 <div class="result-box">
                     <?php if ($createdMatch): ?>
                         <ul class="data-map">

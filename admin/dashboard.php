@@ -40,11 +40,11 @@ $totalMatches = $stats['Programme'] + $stats['En cours'] + $stats['Termine'];
     <div class="badge-live"><span class="dot"></span>Session active</div>
 </section>
 
-<section class="stats">
+<!-- <section class="stats">
     <div class="stat"><div class="k">Matchs</div><div class="v"><?php echo $totalMatches; ?></div></div>
     <div class="stat"><div class="k">En cours</div><div class="v"><?php echo $stats['En cours']; ?></div></div>
     <div class="stat"><div class="k">Programmes</div><div class="v"><?php echo $stats['Programme']; ?></div></div>
-</section>
+</section> -->
 
 <section class="cards">
     <div class="card">
