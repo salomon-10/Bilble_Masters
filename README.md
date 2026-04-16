@@ -339,69 +339,7 @@ Changes reflected on User Side (next page load)
 
 ---
 
-## 📝 Workflow Type
 
-### Pour un Admin
-
-1. **Première visite:** Se connecter avec admin / admin123
-2. **Création match:** Dashboard → Créer → Remplir formulaire → Valider
-3. **Scoring:** Dashboard → Gérer → Start match → Modifier scores → Terminer
-4. **Publication:** Les matchs sont visibles user automatiquement (published=1 par défaut)
-
-### Pour un User
-
-1. Accès direct à `/user/index.php` (pas d'auth)
-2. Voir les matchs en direct
-3. Consulter les scores
-4. Activer mode nuit si souhaité
-
----
-
-## 🚨 Notes de Sécurité
-
-- ⚠️ **Admin par défaut:** Changer `admin123` immédiatement avant production
-- ⚠️ **Mots de passe:** Utiliser des mots de passe forts (12+ caractères, mixtes)
-- ⚠️ **HTTPS:** En production, utiliser un certificat SSL (obligatoire)
-- ⚠️ **CORS:** Configurer correctement les headers si API externe
-- ✅ **Sessions:** Timeout automatique après inactivité (configurable)
-- ✅ **DB:** Sauvegardes régulières recommandées
-
----
-
-## 🐛 Système d'Erreurs
-
-| Erreur | Cause | Solution |
-|---|---|---|
-| "Connexion impossible à la BD" | MySQL non démarré ou identifiants erronés | Vérifier XAMPP MySQL, logs DB |
-| "Identifiants invalides" | Username/password incorrect | Vérifier les valeurs, réinitialiser si nécessaire |
-| "Session invalide" | CSRF token expiré ou données corrompues | Rafraîchir la page et retenter |
-| Scores ne s'affichent pas côté user | Match non published ou page en cache | Vérifier flag published=1, vider cache |
-
----
-
-## 🎨 Styles et Thème
-
-**Palette couleur:**
-- Teal: #1D9E75 (actions principales)
-- Blue: #378ADD (accents)
-- Red: #E24B4A (statuts urgents)
-- Gradient: #6f7793 → #ffffff (background)
-- Dark: #16181f, #1e2028 (mode nuit)
-- Blanc: #e8e9ee (texte clair)
-
-**Typographies:**
-- `Sora` (sans-serif) - Corps et titres
-- `DM Mono` (monospace) - Scores et données techniques
-
----
-
-## 📞 Support et Maintenance
-
-**Logs d'erreur:** Voir `/error_log` côté serveur
-**Base de données:** Vérifier les indices (idx_match_status, idx_match_datetime)
-**Performance:** Les fichiers statiques (CSS/JS) sont cachés par le navigateur
-
----
 
 ## 📄 Licence
 
@@ -411,4 +349,5 @@ Projet Bible Master © 2026. Tous droits réservés.
 
 **Version:** 1.0.0  
 **Dernière mise à jour:** 13 Avril 2026  
-**Auteur:** Bible Master Dev Team
+**Auteur:** salomon_10
+
