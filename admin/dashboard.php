@@ -20,7 +20,7 @@ try {
     $stats = countMatchesByStatus($pdo);
     $recentMatches = fetchMatches($pdo);
 } catch (Throwable $exception) {
-    $dbError = 'Connexion impossible a la base de donnees. Verifiez vos parametres InfinityFree.';
+    $dbError = 'Connexion impossible a la base de donnees.';
 }
 
 $totalMatches = $stats['Programme'] + $stats['En cours'] + $stats['Termine'];
@@ -31,7 +31,7 @@ $totalMatches = $stats['Programme'] + $stats['En cours'] + $stats['Termine'];
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard Admin | Bible Master</title>
-<link rel="stylesheet" href="dashboard.css">
+<link rel="stylesheet" href="tournois/dashboard.css">
 </head>
 <body>
 <main class="dashboard">
@@ -40,22 +40,23 @@ $totalMatches = $stats['Programme'] + $stats['En cours'] + $stats['Termine'];
     <div class="badge-live"><span class="dot"></span>Session active</div>
 </section>
 
-<!-- <section class="stats">
+<section class="stats">
     <div class="stat"><div class="k">Matchs</div><div class="v"><?php echo $totalMatches; ?></div></div>
     <div class="stat"><div class="k">En cours</div><div class="v"><?php echo $stats['En cours']; ?></div></div>
     <div class="stat"><div class="k">Programmes</div><div class="v"><?php echo $stats['Programme']; ?></div></div>
-</section> -->
+    <div class="stat"><div class="k">Termines</div><div class="v"><?php echo $stats['Termine']; ?></div></div>
 
+</section>
 <section class="cards">
     <div class="card">
         <h3>Nouveau match</h3>
-        <p>Creer et publier un match</p>
+        <p>Creer et planifier un match</p>
         <a class="btn primary" href="create_match.php">Creer</a>
     </div>
     <div class="card">
         <h3>Scores et publication</h3>
         <p>Modifier score, statut et visibilite</p>
-        <a class="btn primary" href="visibilite.html">Gerer</a>
+        <a class="btn primary" href="visibilite.php">Gerer</a>
     </div>
 </section>
 
@@ -85,12 +86,12 @@ $totalMatches = $stats['Programme'] + $stats['En cours'] + $stats['Termine'];
             </span>
             <div><?php echo ((int) $match['published'] === 1) ? 'Visible user: Oui' : 'Visible user: Non'; ?></div>
         </div>
-        <a class="btn primary" href="visibilite.html">Gerer</a>
+        <a class="btn primary" href="set_score.php?match_id=<?php echo (int) $match['id']; ?>">Gerer</a>
     </div>
 <?php endforeach; ?>
 </section>
 
-<p><a class="btn secondary" href="logout.php">Deconnexion</a></p>
+<p><a class="btn secondary" href="logout.php">Deconnexion</a></p> 
 </main>
 
 <script>

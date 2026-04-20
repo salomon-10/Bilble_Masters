@@ -19,7 +19,7 @@ try {
     $pdo = db();
     $teams = fetchTeams($pdo);
 } catch (Throwable $exception) {
-    $dbError = 'Connexion impossible a la base de donnees. Verifiez vos parametres InfinityFree.';
+    $dbError = 'Connexion impossible a la base de donnees.';
 }
 
 $allowedStatuses = ['Programme', 'En cours', 'Termine'];
@@ -63,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
 
         $createdMatch = fetchMatchById($pdo, (int) $pdo->lastInsertId());
         $messageType = 'success';
-        $message = 'Match cree avec succes. Il est deja visible cote utilisateur.';
+        $message = 'Match cree avec succes.';
     }
 }
 ?>
@@ -73,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Creer un match | Bible Master Admin</title>
-    <link rel="stylesheet" href="create_match.css" />
+    <link rel="stylesheet" href="tournois/create_match.css" />
 </head>
 <body>
     <main class="page">
@@ -84,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
 
         <div class="grid">
             <section class="card form-card">
-                <h2 class="section-title"> Configuration du match</h2>
+                <h2 class="section-title">Configuration du match</h2>
 
                 <?php if ($message !== ''): ?>
                     <div class="message <?php echo $messageType === 'success' ? 'success' : 'error'; ?>" style="display:block;" role="alert">
@@ -103,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
 
                     <div class="field-row">
                         <div class="field-group">
-                            <label class="required" for="team1">Selection de l'equipe 1</label>
+                            <label class="required" for="team1">Selection de l equipe 1</label>
                             <select id="team1" name="team1" required>
                                 <option value="">Selectionnez une equipe</option>
                                 <?php foreach ($teams as $team): ?>
@@ -113,7 +113,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
                         </div>
 
                         <div class="field-group">
-                            <label class="required" for="team2">Selection de l'equipe 2</label>
+                            <label class="required" for="team2">Selection de l equipe 2</label>
                             <select id="team2" name="team2" required>
                                 <option value="">Selectionnez une equipe</option>
                                 <?php foreach ($teams as $team): ?>
@@ -146,13 +146,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
 
                     <div class="actions">
                         <button class="btn btn-primary" type="submit">Creer le match</button>
-                        <a class="btn btn-secondary" href="set_score.php">Gerer les scores</a>
+                        <a class="btn btn-secondary" href="visibilite.php">Gerer les scores</a>
                     </div>
                 </form>
             </section>
 
             <aside class="card result-card">
-                <h2 class="section-title"> Match cree</h2>
+                <h2 class="section-title">Match cree</h2>
                 <div class="result-box">
                     <?php if ($createdMatch): ?>
                         <ul class="data-map">

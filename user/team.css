@@ -1,0 +1,91 @@
+:root {
+    --text: #f5f7fb;
+    --muted: rgba(245, 247, 251, 0.7);
+    --panel: rgba(15, 23, 42, 0.85);
+    --border: rgba(255, 255, 255, 0.1);
+    --accent: #6c5ce7;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: "Segoe UI", sans-serif;
+    background: linear-gradient(135deg, #0f172a, #1e293b);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* CONTENEUR */
+.container {
+    width: 95%;
+    max-width: 1000px;
+}
+
+/* HEADER */
+.header {
+    text-align: center;
+    margin-bottom: 25px;
+}
+
+.header h1 {
+    font-size: 28px;
+}
+
+.header p {
+    color: var(--muted);
+    font-size: 14px;
+}
+
+/* CARD */
+.card {
+    background: var(--panel);
+    padding: 25px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    backdrop-filter: blur(10px);
+}
+
+/* GRID */
+.teams {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 20px;
+}
+
+/* TEAM CARD */
+.team {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 15px;
+    border-radius: 15px;
+    text-align: center;
+    transition: 0.3s;
+}
+
+/* IMAGE */
+.team img {
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    object-fit: cover;
+    margin-bottom: 10px;
+    border: 2px solid var(--accent);
+}
+
+/* NOM */
+.team span {
+    display: block;
+    font-weight: bold;
+}
+
+/* HOVER */
+.team:hover {
+    transform: translateY(-5px);
+    background: rgba(108, 92, 231, 0.2);
+}

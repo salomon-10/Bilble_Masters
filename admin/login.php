@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/csrf.php';
 
 $pdo = null;
 $dbError = '';
@@ -11,7 +12,7 @@ try {
     $pdo = db();
     ensureDefaultAdmin($pdo);
 } catch (Throwable $exception) {
-    $dbError = 'Connexion impossible a la base de donnees. Verifiez vos parametres MySQL (XAMPP ou hebergeur).';
+    $dbError = 'Initialisation admin impossible. Verifiez la base et la configuration d environnement.';
 }
 
 if (isAdminAuthenticated()) {
@@ -22,19 +23,26 @@ if (isAdminAuthenticated()) {
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
+    validateCsrfOrFail($_POST['csrf_token'] ?? null);
+
     $username = trim((string) ($_POST['username'] ?? ''));
     $password = (string) ($_POST['password'] ?? '');
 
     if ($username === '' || $password === '') {
         $error = 'Veuillez renseigner tous les champs.';
+    } elseif (isLoginThrottled($username)) {
+        $remaining = loginThrottleRemainingSeconds($username);
+        $error = 'Trop de tentatives. Reessayez dans ' . max(1, (int) ceil($remaining / 60)) . ' minute(s).';
     } else {
         $stmt = $pdo->prepare('SELECT id, username, password_hash FROM admins WHERE username = :username LIMIT 1');
         $stmt->execute([':username' => $username]);
         $admin = $stmt->fetch();
 
         if (!$admin || !password_verify($password, (string) $admin['password_hash'])) {
+            registerLoginFailure($username);
             $error = 'Identifiants invalides.';
         } else {
+            clearLoginThrottle($username);
             loginAdmin($admin);
             header('Location: dashboard.php');
             exit;
@@ -200,6 +208,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
             <?php endif; ?>
 
             <form method="post" novalidate>
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8'); ?>">
                 <div class="field">
                     <label for="username">Nom admin</label>
                     <input id="username" name="username" type="text" autocomplete="username" required>
@@ -211,7 +220,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
                 </div>
 
                 <button type="submit" class="btn">Se connecter</button>
-                <p class="hint">Compte par defaut: admin / admin123 (a modifier apres installation).</p>
+                <p class="hint">En production, creez un compte admin fort et desactivez tout bootstrap automatique.</p>
             </form>
         </section>
     </main>

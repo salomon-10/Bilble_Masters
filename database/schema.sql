@@ -33,9 +33,47 @@ CREATE TABLE IF NOT EXISTS matches (
     INDEX idx_match_datetime (match_date, match_time)
 );
 
+CREATE TABLE IF NOT EXISTS match_change_logs (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    match_id INT UNSIGNED NOT NULL,
+    admin_id INT UNSIGNED NOT NULL,
+    admin_username VARCHAR(50) NOT NULL,
+    action VARCHAR(50) NOT NULL DEFAULT 'update_match_state',
+    old_status ENUM('Programme', 'En cours', 'Termine') NULL,
+    new_status ENUM('Programme', 'En cours', 'Termine') NULL,
+    old_score_team1 INT UNSIGNED NULL,
+    new_score_team1 INT UNSIGNED NULL,
+    old_score_team2 INT UNSIGNED NULL,
+    new_score_team2 INT UNSIGNED NULL,
+    old_published TINYINT(1) NULL,
+    new_published TINYINT(1) NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_match_change_logs_match FOREIGN KEY (match_id) REFERENCES matches(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_match_change_logs_admin FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    INDEX idx_match_change_logs_match_id (match_id),
+    INDEX idx_match_change_logs_created_at (created_at)
+);
+
+CREATE TABLE IF NOT EXISTS match_trials (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    match_id INT UNSIGNED NOT NULL,
+    trial_order TINYINT UNSIGNED NOT NULL,
+    trial_name VARCHAR(80) NOT NULL,
+    team1_points INT NOT NULL DEFAULT 0,
+    team2_points INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_match_trials_match FOREIGN KEY (match_id) REFERENCES matches(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    UNIQUE KEY uq_match_trial_order (match_id, trial_order),
+    INDEX idx_match_trials_match_id (match_id)
+);
+
 INSERT IGNORE INTO teams (name) VALUES
-('Flammes de Jerusalem'),
-('Harpe de David'),
-('Etoiles de Bethleem'),
-('Guerriers de Capharnaum'),
-('Lumiere de Galilee');
+('Petites fourmis de Dieu '),
+('Guerriers de Dieu'),
+('Missionnaires de Dieu'),
+('Victorious '),
+('Flamme de Vie'),
+('Sky Warriors'),
+('Barouck'),
+('God Avengers'),
