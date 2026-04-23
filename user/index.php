@@ -6,11 +6,21 @@ require_once __DIR__ . '/../config/repositories.php';
 
 $dbError = '';
 $allPublishedMatches = [];
+$tournaments = [];
+$selectedTournamentId = (int) ($_GET['tournament_id'] ?? 0);
+$selectedTournament = null;
 
 try {
     $pdo = db();
-    $allPublishedMatches = fetchMatches($pdo, null, true);
+    $tournaments = fetchTournaments($pdo);
+    $resolved = resolveTournamentId($pdo, $selectedTournamentId > 0 ? $selectedTournamentId : null);
+    if ($resolved !== null) {
+        $selectedTournamentId = $resolved;
+        $selectedTournament = fetchTournamentById($pdo, $selectedTournamentId);
+        $allPublishedMatches = fetchMatches($pdo, null, true, $selectedTournamentId);
+    }
 } catch (Throwable $exception) {
+    error_log('[Bible_Master] user/index.php failed: ' . $exception->getMessage());
     $dbError = 'Connexion impossible a la base de donnees. Verifiez les parametres InfinityFree.';
 }
 
@@ -168,7 +178,7 @@ function buildStandings(array $matches): array
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bible Master | Matchs en direct</title>
-    <link rel="stylesheet" href="./index.css">
+    <link rel="stylesheet" href="index.css">
 </head>
 <body>
     <main class="shell">
@@ -176,45 +186,26 @@ function buildStandings(array $matches): array
             <div>
                 <p class="eyebrow">Bible Master</p>
                 <h1>Matchs et scores en direct</h1>
-                <p class="subtitle">Suivez les matchs, appliquez des filtres, et consultez le classement automatique.</p>
+                <p class="subtitle">Suivez les matchs du tournoi <?php echo htmlspecialchars((string) ($selectedTournament['name'] ?? 'actif'), ENT_QUOTES, 'UTF-8'); ?>, appliquez des filtres, et consultez le classement automatique.</p>
             </div>
             <div class="hero-actions">
                 <button id="themeToggle" class="btn ghost" type="button" aria-label="Activer le mode nuit">Mode nuit</button>
                 <button id="refreshNow" class="btn ghost" type="button" aria-label="Rafraichir">Rafraichir</button>
-<button class="btn ghost" aria-label="Teams" onclick="window.location.href='team.html'">
+<button class="btn ghost" aria-label="Teams" onclick="window.location.href='/user/team.html?tournament_id=<?php echo (int) $selectedTournamentId; ?>'">
     Voir les équipes
 </button>            </div>
         </header>
-<!-- 
-        <section class="card filters-card">
-            <form method="get" class="filters-grid">
-                <div class="filter-field">
-                    <label for="q">Recherche equipe</label>
-                    <input id="q" name="q" type="text" value="<?php echo htmlspecialchars($search, ENT_QUOTES, 'UTF-8'); ?>" placeholder="Ex: Guerriers" />
-                </div>
 
-                <div class="filter-field">
-                    <label for="status">Statut</label>
-                    <select id="status" name="status">
-                        <option value="all" <?php echo $statusFilter === 'all' ? 'selected' : ''; ?>>Tous</option>
-                        <option value="Programme" <?php echo $statusFilter === 'Programme' ? 'selected' : ''; ?>>Programme</option>
-                        <option value="En cours" <?php echo $statusFilter === 'En cours' ? 'selected' : ''; ?>>En cours</option>
-                        <option value="Termine" <?php echo $statusFilter === 'Termine' ? 'selected' : ''; ?>>Termine</option>
-                    </select>
-                </div>
+        <section class="card" style="padding:14px 16px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <strong>Tournois:</strong>
+            <?php if (!$tournaments): ?>
+                <span class="empty">Aucun tournoi</span>
+            <?php endif; ?>
+            <?php foreach ($tournaments as $t): ?>
+                <a class="btn ghost" href="/user/index.php?tournament_id=<?php echo (int) $t['id']; ?>"><?php echo htmlspecialchars((string) $t['name'], ENT_QUOTES, 'UTF-8'); ?></a>
+            <?php endforeach; ?>
+        </section>
 
-                <div class="filter-field">
-                    <label for="match_date">Date</label>
-                    <input id="match_date" name="match_date" type="date" value="<?php echo htmlspecialchars($dateFilter, ENT_QUOTES, 'UTF-8'); ?>" />
-                </div>
-
-                <div class="filter-actions">
-                    <button class="btn ghost" type="submit">Appliquer</button>
-                    <a class="btn ghost" href="index.php">Reset</a>
-                </div>
-            </form>
-            <p class="refresh-meta">Derniere mise a jour: <?php echo htmlspecialchars($nowTime, ENT_QUOTES, 'UTF-8'); ?> | Auto-refresh: 20s</p>
-        </section> -->
 
         <section class="live-zone card">
             <div class="section-head">
@@ -225,7 +216,7 @@ function buildStandings(array $matches): array
                 <?php if ($dbError !== ''): ?><p class="empty"><?php echo htmlspecialchars($dbError, ENT_QUOTES, 'UTF-8'); ?></p><?php endif; ?>
                 <?php if (!$live): ?><p class="empty">Aucun match en cours.</p><?php endif; ?>
                 <?php foreach ($live as $match): ?>
-                    <a class="match-link" href="match.php?id=<?php echo (int) $match['id']; ?>">
+                    <a class="match-link" href="/user/match.php?id=<?php echo (int) $match['id']; ?>&tournament_id=<?php echo (int) $selectedTournamentId; ?>">
                     <article class="match-row">
                         <div class="match-main">
                             <p class="teams"><?php echo htmlspecialchars($match['team1_name'], ENT_QUOTES, 'UTF-8'); ?> vs <?php echo htmlspecialchars($match['team2_name'], ENT_QUOTES, 'UTF-8'); ?></p>
@@ -247,7 +238,7 @@ function buildStandings(array $matches): array
                 <div class="list compact">
                     <?php if (!$upcoming): ?><p class="empty">Aucun match a venir.</p><?php endif; ?>
                     <?php foreach ($upcoming as $match): ?>
-                        <a class="match-link" href="match.php?id=<?php echo (int) $match['id']; ?>">
+                        <a class="match-link" href="match.php?id=<?php echo (int) $match['id']; ?>&tournament_id=<?php echo (int) $selectedTournamentId; ?>">
                         <article class="match-row">
                             <div class="match-main">
                                 <p class="teams"><?php echo htmlspecialchars($match['team1_name'], ENT_QUOTES, 'UTF-8'); ?> vs <?php echo htmlspecialchars($match['team2_name'], ENT_QUOTES, 'UTF-8'); ?></p>
@@ -268,7 +259,7 @@ function buildStandings(array $matches): array
                 <div class="list compact">
                     <?php if (!$past): ?><p class="empty">Aucun match passe.</p><?php endif; ?>
                     <?php foreach ($past as $match): ?>
-                        <a class="match-link" href="match.php?id=<?php echo (int) $match['id']; ?>">
+                        <a class="match-link" href="match.php?id=<?php echo (int) $match['id']; ?>&tournament_id=<?php echo (int) $selectedTournamentId; ?>">
                         <article class="match-row">
                             <div class="match-main">
                                 <p class="teams"><?php echo htmlspecialchars($match['team1_name'], ENT_QUOTES, 'UTF-8'); ?> vs <?php echo htmlspecialchars($match['team2_name'], ENT_QUOTES, 'UTF-8'); ?></p>
@@ -358,7 +349,7 @@ function buildStandings(array $matches): array
 
     setInterval(() => {
         window.location.reload();
-    }, 3000);
+    }, 10000);
     </script>
 </body>
 </html>

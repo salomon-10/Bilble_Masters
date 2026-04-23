@@ -5,5 +5,5 @@ declare(strict_types=1);
 require_once __DIR__ . '/includes/auth.php';
 
 logoutAdmin();
-header('Location: login.php');
+header('Location: /index.php');
 exit;

@@ -153,7 +153,7 @@ function isAdminAuthenticated(): bool
 function requireAdminAuth(): void
 {
     if (!isAdminAuthenticated()) {
-        header('Location: login.php');
+        header('Location: /index.php');
         exit;
     }
 }

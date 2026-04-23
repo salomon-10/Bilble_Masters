@@ -3,67 +3,165 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Équipes</title>
+    <title>Equipes et progression</title>
     <link rel="stylesheet" href="team.css">
 </head>
 <body>
-
 <main class="container">
-
-    <header class="header">
-        <h1>Équipes de la compétition</h1>
-        <p>Liste de toutes les équipes participantes</p>
+    <header class="header card">
+        <div>
+            <h1 id="title">Equipes de la competition</h1>
+            <p id="subtitle">Chargement des equipes, poules et progression...</p>
+        </div>
+        <a class="btn" href="/user/index.php">Retour matchs</a>
     </header>
 
     <section class="card">
-
-        <div class="teams">
-
-            <div class="team">
-                <img src="/img/team1.png" alt="Barouck">
-                <span>Petites fourmis de Dieu </span>
-            </div>
-
-            <div class="team">
-                <img src="/img/team2.jpeg" alt="Avengers">
-                <span>Guerriers de Dieu</span>
-            </div>
-
-            <div class="team">
-                <img src="/img/team3.png" alt="Missionnaires de Dieu">
-                <span>Missionnaires de Dieu</span>
-            </div>
-
-            <div class="team">
-                <img src="/img/team4.jpeg   " alt="Victorious">
-                <span>Victorious </span>
-            </div>
-
-            <div class="team">
-                <img src="/img/team5.png" alt="Flamme de Vie">
-                <span>Flamme de Vie</span>
-            </div>
-
-            <div class="team">
-                <img src="/img/team6.jpeg" alt="Sky Warriors">
-                <span>Sky Warriors </span>
-            </div>
-
-            <div class="team">
-                <img src="/img/team7.png" alt="Barouck">
-                <span>Barouck</span>
-            </div>
-
-            <div class="team">
-                <img src="/img/team8.jpeg" alt="God Avengers">
-                <span>God Avengers </span>
-            </div>
-
-        </div>
-
+        <h2>Equipes</h2>
+        <div id="teams" class="teams"></div>
     </section>
 
+    <section class="card">
+        <h2>Poules</h2>
+        <div id="pools" class="pools"></div>
+    </section>
+
+    <section class="card">
+        <h2>Arbre de progression</h2>
+        <div id="bracket" class="bracket"></div>
+    </section>
 </main>
 
+<script>
+const search = new URLSearchParams(window.location.search);
+const tournamentId = Number(search.get('tournament_id') || 0);
+
+function matchScore(match) {
+    if (match.score_team1 === null || match.score_team2 === null) {
+        return ' - ';
+    }
+    return String(match.score_team1) + ' - ' + String(match.score_team2);
+}
+
+function matchState(match) {
+    if (match.status === 'En cours') {
+        return 'LIVE';
+    }
+    if (match.status === 'Termine') {
+        return 'Termine';
+    }
+    return 'Programme';
+}
+
+function renderTeams(teams) {
+    const root = document.getElementById('teams');
+    root.innerHTML = '';
+
+    if (!teams.length) {
+        root.innerHTML = '<p class="muted">Aucune equipe disponible.</p>';
+        return;
+    }
+
+    teams.forEach((team) => {
+        const item = document.createElement('article');
+        item.className = 'team';
+        item.innerHTML = `
+            <img src="${team.logo_path}" alt="Logo ${team.name}">
+            <span>${team.name}</span>
+        `;
+        root.appendChild(item);
+    });
+}
+
+function renderPools(pools) {
+    const root = document.getElementById('pools');
+    root.innerHTML = '';
+
+    const entries = Object.entries(pools || {});
+    if (!entries.length) {
+        root.innerHTML = '<p class="muted">Aucune poule configuree.</p>';
+        return;
+    }
+
+    entries.forEach(([poolName, teams]) => {
+        const block = document.createElement('article');
+        block.className = 'pool';
+
+        const teamTags = teams.length
+            ? teams.map((team) => `<span class="tag">${team.name}</span>`).join('')
+            : '<span class="muted">Aucune equipe</span>';
+
+        block.innerHTML = `
+            <h3>Poule ${poolName}</h3>
+            <div class="pool-teams">${teamTags}</div>
+        `;
+        root.appendChild(block);
+    });
+}
+
+function renderBracket(bracket) {
+    const root = document.getElementById('bracket');
+    root.innerHTML = '';
+
+    const phases = [
+        ['Poule', 'Phase de poules'],
+        ['Quart', 'Quart de finale'],
+        ['Demi', 'Demi-finale'],
+        ['Finale', 'Finale']
+    ];
+
+    phases.forEach(([key, label]) => {
+        const matches = bracket[key] || [];
+        const column = document.createElement('section');
+        column.className = 'stage';
+
+        const cards = matches.length
+            ? matches.map((match) => `
+                <article class="stage-match">
+                    <p class="teams-line">
+                        <img src="${match.team1_logo}" alt="${match.team1_name}">
+                        <span>${match.team1_name}</span>
+                    </p>
+                    <p class="teams-line">
+                        <img src="${match.team2_logo}" alt="${match.team2_name}">
+                        <span>${match.team2_name}</span>
+                    </p>
+                    <p class="score">${matchScore(match)}</p>
+                    <p class="meta">${matchState(match)} | ${match.match_date}</p>
+                </article>
+            `).join('')
+            : '<p class="muted">Aucun match</p>';
+
+        column.innerHTML = `
+            <h3>${label}</h3>
+            ${cards}
+        `;
+
+        root.appendChild(column);
+    });
+}
+
+fetch(`/user/team_data.php?tournament_id=${tournamentId}`)
+    .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok || payload.ok !== true) {
+            throw new Error(payload.message || 'Erreur de chargement');
+        }
+
+        const tournamentName = payload.tournament ? payload.tournament.name : 'Tournoi';
+        document.getElementById('title').textContent = `Equipes - ${tournamentName}`;
+        document.getElementById('subtitle').textContent = 'Affichage dynamique des equipes, poules et arbre de progression.';
+
+        renderTeams(payload.teams || []);
+        renderPools(payload.pools || {});
+        renderBracket(payload.bracket || {});
+    })
+    .catch((error) => {
+        document.getElementById('subtitle').textContent = error.message;
+        document.getElementById('teams').innerHTML = '<p class="muted">Erreur de chargement.</p>';
+        document.getElementById('pools').innerHTML = '';
+        document.getElementById('bracket').innerHTML = '';
+    });
+</script>
 </body>
 </html>

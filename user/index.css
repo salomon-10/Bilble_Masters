@@ -183,6 +183,14 @@ h2 {
 	display: flex;
 	gap: 8px;
 	flex-wrap: wrap;
+	align-items: stretch;
+	justify-content: flex-end;
+}
+
+.hero-actions .btn {
+	flex: 1 1 140px;
+	justify-content: center;
+	min-width: 0;
 }
 
 .btn {
@@ -190,6 +198,10 @@ h2 {
 	border-radius: 999px;
 	padding: 11px 16px;
 	font-weight: 800;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	text-align: center;
 	transition: transform 0.2s ease, filter 0.2s ease, background 0.2s ease, color 0.2s ease;
 }
 
@@ -406,7 +418,7 @@ h2 {
 .standings-table {
 	width: 100%;
 	border-collapse: collapse;
-	min-width: 760px;
+	min-width: 0;
 }
 
 .standings-table th,
@@ -430,32 +442,52 @@ h2 {
 	background: rgba(255, 255, 255, 0.04);
 }
 
+.standings-table th,
+.standings-table td {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .standings-table tbody tr:last-child td {
 	border-bottom: 0;
 }
 
 @media (max-width: 900px) {
 	.shell {
-		width: min(100% - 18px, 1120px);
-		padding-top: 14px;
+		width: 100%;
+		padding: 16px;
 	}
 
 	.hero {
 		flex-direction: column;
+		text-align: center;
+	}
+
+	.hero-actions {
+		width: 100%;
+		justify-content: center;
+		flex-wrap: wrap;
 	}
 
 	.filters-grid {
-		grid-template-columns: 1fr 1fr;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 12px;
 	}
 
 	.grid {
 		grid-template-columns: 1fr;
 	}
+
+	.standings-table {
+		font-size: 0.85rem;
+	}
 }
 
 @media (max-width: 640px) {
 	.shell {
-		width: min(100% - 14px, 1120px);
+		width: 100%;
+		padding: 12px;
 	}
 
 	.hero,
@@ -464,29 +496,138 @@ h2 {
 	.filters-card,
 	.standings-card {
 		padding: 16px;
-		border-radius: 20px;
+		border-radius: 16px;
+	}
+
+	.hero {
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+	}
+
+	.hero > div {
+		width: 100%;
+	}
+
+	.section-head {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.badge {
+		align-self: flex-start;
+		font-size: 0.8rem;
 	}
 
 	.filters-grid {
 		grid-template-columns: 1fr;
 	}
 
+	.hero-actions {
+		width: 100%;
+		flex-wrap: wrap;
+		justify-content: center;
+	}
+
+	.hero-actions .btn,
+	.hero-actions > .btn {
+		flex: 1 1 100%;
+		min-width: 140px;
+	}
+
 	.match-row {
 		flex-direction: column;
 		align-items: flex-start;
+		gap: 8px;
+		padding: 12px;
 	}
 
 	.match-side {
 		justify-items: start;
 		width: 100%;
+		order: -1;
 	}
 
 	.teams {
 		white-space: normal;
+		line-height: 1.2;
+		font-size: 0.95rem;
+	}
+
+	.match-main,
+	.match-side {
+		width: 100%;
 	}
 
 	h1 {
 		max-width: none;
+		font-size: 1.8rem;
+	}
+
+	.subtitle {
+		font-size: 0.9rem;
+	}
+}
+
+@media (max-width: 420px) {
+	.shell {
+		padding: 8px;
+		gap: 10px;
+	}
+
+	.hero,
+	.live-zone,
+	.grid > .card,
+	.filters-card,
+	.standings-card {
+		padding: 12px;
+		border-radius: 14px;
+	}
+
+	h1 {
+		font-size: 1.5rem;
+		margin-bottom: 8px;
+	}
+
+	.subtitle {
+		font-size: 0.85rem;
+	}
+
+	.hero-actions {
+		gap: 8px;
+	}
+
+	.hero-actions .btn {
+		flex-basis: 100%;
+		padding: 8px 12px;
+		font-size: 0.9rem;
+	}
+
+	.match-row {
+		padding: 10px;
+		border-radius: 10px;
+	}
+
+	.teams {
+		font-size: 0.9rem;
+	}
+
+	.score {
+		font-size: 0.95rem;
+	}
+
+	.standings-table {
+		font-size: 0.8rem;
+	}
+
+	.standings-table th,
+	.standings-table td {
+		padding: 6px 8px;
+	}
+
+	.standings-table th {
+		font-size: 0.7rem;
 	}
 }
 

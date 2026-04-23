@@ -59,6 +59,46 @@ function teamInitials(string $name): string
     return $letters !== '' ? $letters : 'EQ';
 }
 
+function logoCandidates(?string $path): array
+{
+    $raw = trim((string) ($path ?? ''));
+    if ($raw === '') {
+        return [];
+    }
+
+    if (preg_match('#^https?://#i', $raw)) {
+        return [$raw];
+    }
+
+    $hostName = strtolower((string) ($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? ''));
+    $isLocalHost = $hostName === ''
+        || str_contains($hostName, 'localhost')
+        || str_contains($hostName, '127.0.0.1');
+
+    $normalized = '/' . ltrim($raw, '/');
+    if (preg_match('#(?:^|/)(img/teams/[^?]+)$#i', $normalized, $matches)) {
+        $normalized = '/' . $matches[1];
+    }
+
+    $candidates = [$normalized];
+
+    if (str_starts_with($normalized, '/Bible_Master/')) {
+        $trimmed = substr($normalized, strlen('/Bible_Master'));
+        if ($trimmed !== '' && $trimmed !== '/') {
+            if ($isLocalHost) {
+                $candidates[] = $trimmed;
+            } else {
+                // On production hosting like InfinityFree, /img/... should be tried first.
+                $candidates = [$trimmed, $normalized];
+            }
+        }
+    } elseif (str_starts_with($normalized, '/img/')) {
+        $candidates[] = '/Bible_Master' . $normalized;
+    }
+
+    return array_values(array_unique(array_filter($candidates, static fn(string $v): bool => $v !== '')));
+}
+
 $trials = [];
 
 if ($match) {
@@ -107,7 +147,20 @@ if ($match) {
                             <p class="team-label">Team B</p>
                             <h2 class="team-name"><?php echo htmlspecialchars((string) $match['team2_name'], ENT_QUOTES, 'UTF-8'); ?></h2>
                         </div>
-                        <div class="logo-emblem"><?php echo htmlspecialchars(teamInitials((string) $match['team2_name']), ENT_QUOTES, 'UTF-8'); ?></div>
+                        <div class="logo-emblem">
+                            <?php $team2LogoCandidates = logoCandidates((string) ($match['team2_logo'] ?? '')); ?>
+                            <?php if ($team2LogoCandidates): ?>
+                                <img
+                                    src="<?php echo htmlspecialchars((string) $team2LogoCandidates[0], ENT_QUOTES, 'UTF-8'); ?>"
+                                    alt="Logo <?php echo htmlspecialchars((string) $match['team2_name'], ENT_QUOTES, 'UTF-8'); ?>"
+                                    loading="lazy"
+                                    data-alt-src="<?php echo htmlspecialchars((string) ($team2LogoCandidates[1] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
+                                    onerror="if(this.dataset.altSrc && this.src.indexOf(this.dataset.altSrc) === -1){ this.src = this.dataset.altSrc; this.dataset.altSrc=''; return; } this.style.display='none'; if(this.nextElementSibling){ this.nextElementSibling.style.display='grid'; }"
+                                    onload="if(this.nextElementSibling){ this.nextElementSibling.style.display='none'; }"
+                                >
+                            <?php endif; ?>
+                            <span class="logo-fallback"><?php echo htmlspecialchars(teamInitials((string) $match['team2_name']), ENT_QUOTES, 'UTF-8'); ?></span>
+                        </div>
                     </article>
 
                     <div class="versus-zone">
@@ -117,7 +170,20 @@ if ($match) {
                     </div>
 
                     <article class="team-zone right-zone">
-                            <div class="logo-emblem warm"><?php echo htmlspecialchars(teamInitials((string) $match['team1_name']), ENT_QUOTES, 'UTF-8'); ?></div>
+                            <div class="logo-emblem warm">
+                                <?php $team1LogoCandidates = logoCandidates((string) ($match['team1_logo'] ?? '')); ?>
+                                <?php if ($team1LogoCandidates): ?>
+                                    <img
+                                        src="<?php echo htmlspecialchars((string) $team1LogoCandidates[0], ENT_QUOTES, 'UTF-8'); ?>"
+                                        alt="Logo <?php echo htmlspecialchars((string) $match['team1_name'], ENT_QUOTES, 'UTF-8'); ?>"
+                                        loading="lazy"
+                                        data-alt-src="<?php echo htmlspecialchars((string) ($team1LogoCandidates[1] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
+                                        onerror="if(this.dataset.altSrc && this.src.indexOf(this.dataset.altSrc) === -1){ this.src = this.dataset.altSrc; this.dataset.altSrc=''; return; } this.style.display='none'; if(this.nextElementSibling){ this.nextElementSibling.style.display='grid'; }"
+                                        onload="if(this.nextElementSibling){ this.nextElementSibling.style.display='none'; }"
+                                    >
+                                <?php endif; ?>
+                                <span class="logo-fallback"><?php echo htmlspecialchars(teamInitials((string) $match['team1_name']), ENT_QUOTES, 'UTF-8'); ?></span>
+                            </div>
                         <div>
                             <p class="team-label">Team A</p>
                             <h2 class="team-name"><?php echo htmlspecialchars((string) $match['team1_name'], ENT_QUOTES, 'UTF-8'); ?></h2>
@@ -160,4 +226,9 @@ if ($match) {
         <?php endif; ?>
     </main>
 </body>
+<script>
+    setInterval(() => {
+        window.location.reload();
+    }, 5000);
+</script>
 </html>

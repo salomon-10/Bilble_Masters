@@ -10,6 +10,8 @@ requireAdminAuth();
 
 $pdo = null;
 $teams = [];
+$tournament = null;
+$tournamentId = (int) ($_GET['tournament_id'] ?? $_POST['tournament_id'] ?? 0);
 $dbError = '';
 $messageType = '';
 $message = '';
@@ -17,14 +19,23 @@ $createdMatch = null;
 
 try {
     $pdo = db();
-    $teams = fetchTeams($pdo);
+    $resolved = resolveTournamentId($pdo, $tournamentId > 0 ? $tournamentId : null);
+    if ($resolved === null) {
+        $dbError = 'Aucun tournoi disponible. Creez un tournoi depuis le dashboard index.';
+    } else {
+        $tournamentId = $resolved;
+        $tournament = fetchTournamentById($pdo, $tournamentId);
+        $teams = fetchTeams($pdo, $tournamentId);
+    }
 } catch (Throwable $exception) {
+    error_log('[Bible_Master] admin/create_match.php failed: ' . $exception->getMessage());
     $dbError = 'Connexion impossible a la base de donnees.';
 }
 
 $allowedStatuses = ['Programme', 'En cours', 'Termine'];
+$allowedPhases = ['Poule', 'Quart', 'Demi', 'Finale'];
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO && $tournamentId > 0) {
     validateCsrfOrFail($_POST['csrf_token'] ?? null);
 
     $team1 = (int) ($_POST['team1'] ?? 0);
@@ -32,6 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
     $matchDate = (string) ($_POST['matchDate'] ?? '');
     $matchTime = (string) ($_POST['matchTime'] ?? '');
     $status = (string) ($_POST['status'] ?? 'Programme');
+    $phase = (string) ($_POST['phase'] ?? 'Poule');
 
     if ($team1 <= 0 || $team2 <= 0 || $matchDate === '' || $matchTime === '') {
         $messageType = 'error';
@@ -42,28 +54,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
     } elseif (!in_array($status, $allowedStatuses, true)) {
         $messageType = 'error';
         $message = 'Le statut fourni est invalide.';
+    } elseif (!in_array($phase, $allowedPhases, true)) {
+        $messageType = 'error';
+        $message = 'La phase fournie est invalide.';
     } else {
-        $scoreTeam1 = $status === 'Programme' ? null : 0;
-        $scoreTeam2 = $status === 'Programme' ? null : 0;
-
-        $stmt = $pdo->prepare(
-            'INSERT INTO matches (team1_id, team2_id, match_date, match_time, status, score_team1, score_team2, published)
-             VALUES (:team1_id, :team2_id, :match_date, :match_time, :status, :score_team1, :score_team2, 1)'
-        );
-
-        $stmt->bindValue(':team1_id', $team1, PDO::PARAM_INT);
-        $stmt->bindValue(':team2_id', $team2, PDO::PARAM_INT);
-        $stmt->bindValue(':match_date', $matchDate, PDO::PARAM_STR);
-        $stmt->bindValue(':match_time', $matchTime, PDO::PARAM_STR);
-        $stmt->bindValue(':status', $status, PDO::PARAM_STR);
-        $stmt->bindValue(':score_team1', $scoreTeam1, $scoreTeam1 === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
-        $stmt->bindValue(':score_team2', $scoreTeam2, $scoreTeam2 === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
-
-        $stmt->execute();
-
-        $createdMatch = fetchMatchById($pdo, (int) $pdo->lastInsertId());
-        $messageType = 'success';
-        $message = 'Match cree avec succes.';
+        $newMatchId = createMatch($pdo, $tournamentId, $team1, $team2, $matchDate, $matchTime, $status, $phase);
+        if ($newMatchId === null) {
+            $messageType = 'error';
+            $message = 'Creation du match impossible.';
+        } else {
+            $createdMatch = fetchMatchById($pdo, $newMatchId);
+            $messageType = 'success';
+            $message = 'Match cree avec succes.';
+        }
     }
 }
 ?>
@@ -79,7 +82,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
     <main class="page">
         <section class="hero">
             <h1>Ajouter un match</h1>
-            <p><a class="btn btn-secondary" href="dashboard.php">Retour dashboard</a></p>
+            <p><a class="btn btn-secondary" href="/admin/tournament_dashboard.php?tournament_id=<?php echo (int) $tournamentId; ?>">Retour dashboard</a></p>
+            <p style="margin-top:6px;opacity:.85;">Tournoi: <?php echo htmlspecialchars((string) ($tournament['name'] ?? 'Non defini'), ENT_QUOTES, 'UTF-8'); ?></p>
         </section>
 
         <div class="grid">
@@ -100,6 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
 
                 <form method="post" novalidate>
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8'); ?>">
+                    <input type="hidden" name="tournament_id" value="<?php echo (int) $tournamentId; ?>">
 
                     <div class="field-row">
                         <div class="field-group">
@@ -144,9 +149,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
                         </div>
                     </div>
 
+                    <div class="field-group">
+                        <label class="required" for="phase">Phase</label>
+                        <select id="phase" name="phase" required>
+                            <option value="Poule">Poule</option>
+                            <option value="Quart">Quart de finale</option>
+                            <option value="Demi">Demi-finale</option>
+                            <option value="Finale">Finale</option>
+                        </select>
+                    </div>
+
                     <div class="actions">
                         <button class="btn btn-primary" type="submit">Creer le match</button>
-                        <a class="btn btn-secondary" href="visibilite.php">Gerer les scores</a>
+                        <a class="btn btn-secondary" href="visibilite.php?tournament_id=<?php echo (int) $tournamentId; ?>">Gerer les scores</a>
                     </div>
                 </form>
             </section>

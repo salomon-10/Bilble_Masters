@@ -16,7 +16,7 @@ try {
 }
 
 if (isAdminAuthenticated()) {
-    header('Location: dashboard.php');
+    header('Location: /admin/dashboard.php');
     exit;
 }
 
@@ -44,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
         } else {
             clearLoginThrottle($username);
             loginAdmin($admin);
-            header('Location: dashboard.php');
+            header('Location: /admin/dashboard.php');
             exit;
         }
     }

@@ -9,12 +9,21 @@ require_once __DIR__ . '/../config/repositories.php';
 requireAdminAuth();
 
 $matchId = (int) ($_GET['match_id'] ?? $_POST['match_id'] ?? 0);
+$tournamentId = (int) ($_GET['tournament_id'] ?? $_POST['tournament_id'] ?? 0);
 $message = '';
 $messageType = '';
 $dbError = '';
 $match = null;
 $trials = [];
 $logs = [];
+
+function respondJson(array $payload, int $status = 200): never
+{
+    http_response_code($status);
+    header('Content-Type: application/json; charset=UTF-8');
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
 
 if ($matchId <= 0) {
     $dbError = 'Match invalide.';
@@ -26,11 +35,62 @@ if ($matchId <= 0) {
         if (!$match) {
             $dbError = 'Match introuvable.';
         } else {
+            if ($tournamentId <= 0) {
+                $tournamentId = (int) ($match['tournament_id'] ?? 0);
+            }
+
             $trials = fetchOrInitMatchTrials($pdo, $matchId);
 
             if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 validateCsrfOrFail($_POST['csrf_token'] ?? null);
                 $action = (string) ($_POST['action'] ?? '');
+
+                if ($action === 'autosave_trial') {
+                    $trialOrder = (int) ($_POST['trial_order'] ?? 0);
+                    $team1Raw = trim((string) ($_POST['team1_points'] ?? '0'));
+                    $team2Raw = trim((string) ($_POST['team2_points'] ?? '0'));
+
+                    if ($trialOrder <= 0 || !preg_match('/^[0-9]+$/', $team1Raw) || !preg_match('/^[0-9]+$/', $team2Raw)) {
+                        respondJson([
+                            'ok' => false,
+                            'message' => 'Valeurs invalides.',
+                        ], 422);
+                    }
+
+                    $team1Points = (int) $team1Raw;
+                    $team2Points = (int) $team2Raw;
+
+                    if (!updateMatchTrial($pdo, $matchId, $trialOrder, $team1Points, $team2Points)) {
+                        respondJson([
+                            'ok' => false,
+                            'message' => 'Epreuve introuvable.',
+                        ], 404);
+                    }
+
+                    syncMatchTotalsFromTrials($pdo, $matchId);
+                    $updated = fetchMatchById($pdo, $matchId);
+                    if ($updated && (string) ($updated['status'] ?? 'Programme') === 'Programme') {
+                        updateMatchState(
+                            $pdo,
+                            $matchId,
+                            'En cours',
+                            (int) ($updated['score_team1'] ?? 0),
+                            (int) ($updated['score_team2'] ?? 0),
+                            (int) ($updated['published'] ?? 1) === 1,
+                            (int) ($_SESSION['admin_id'] ?? 0),
+                            (string) ($_SESSION['admin_username'] ?? 'admin')
+                        );
+                        $updated = fetchMatchById($pdo, $matchId);
+                    }
+
+                    respondJson([
+                        'ok' => true,
+                        'message' => 'Epreuve enregistree.',
+                        'score_team1' => (int) (($updated['score_team1'] ?? 0)),
+                        'score_team2' => (int) (($updated['score_team2'] ?? 0)),
+                        'status' => (string) (($updated['status'] ?? 'En cours')),
+                    ]);
+                }
 
                 if ($action === 'start_match') {
                     updateMatchState(
@@ -627,7 +687,7 @@ body::after {
 </head>
 <body>
 <div class="page">
-    <a class="back" href="visibilite.php">Retour visibilite</a>
+    <a class="back" href="visibilite.php?tournament_id=<?php echo (int) $tournamentId; ?>">Retour visibilite</a>
 
     <?php if ($dbError !== ''): ?>
         <div class="message error"><?php echo htmlspecialchars($dbError, ENT_QUOTES, 'UTF-8'); ?></div>
@@ -694,10 +754,11 @@ body::after {
                             <div class="trial-badge">Ordre <?php echo (int) $trial['trial_order']; ?></div>
                         </div>
                         <div class="trial-body">
-                            <form method="post">
+                            <form method="post" class="trial-form" data-trial-order="<?php echo (int) $trial['trial_order']; ?>">
                                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8'); ?>">
                                 <input type="hidden" name="match_id" value="<?php echo (int) $matchId; ?>">
-                                <input type="hidden" name="action" value="save_trial">
+                                <input type="hidden" name="tournament_id" value="<?php echo (int) $tournamentId; ?>">
+                                <input type="hidden" name="action" value="autosave_trial">
                                 <input type="hidden" name="trial_order" value="<?php echo (int) $trial['trial_order']; ?>">
                                 <div class="rows">
                                     <div class="row a">
@@ -711,7 +772,7 @@ body::after {
                                         <button class="btn" type="button" onclick="step(this, 10)">+</button>
                                     </div>
                                 </div>
-                                <button class="save" type="submit">Valider l epreuve</button>
+                                <p class="muted-state" style="font-size:12px;color:#b9c6da;">Sauvegarde automatique active</p>
                             </form>
                         </div>
                     </div>
@@ -748,6 +809,7 @@ function step(button, delta) {
     const next = Math.max(0, current + delta);
     input.value = next;
     updateTotalPreview();
+    queueAutoSave(input.closest('form'));
 }
 
 function updateTotalPreview() {
@@ -782,13 +844,88 @@ function showToast(text) {
     }, 2000);
 }
 
+const saveTimers = new Map();
+const retryTimers = new Map();
+
+function setFormState(form, text, isError = false) {
+    const state = form.querySelector('.muted-state');
+    if (!state) {
+        return;
+    }
+    state.textContent = text;
+    state.style.color = isError ? '#ffd4d4' : '#b9c6da';
+}
+
+function autoSave(form, fromRetry = false) {
+    const formData = new FormData(form);
+
+    setFormState(form, fromRetry ? 'Nouvelle tentative...' : 'Sauvegarde...');
+
+    fetch(window.location.pathname + window.location.search, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+        .then(async (response) => {
+            let payload = null;
+            try {
+                payload = await response.json();
+            } catch (e) {
+                payload = null;
+            }
+
+            if (!response.ok || !payload || payload.ok !== true) {
+                throw new Error((payload && payload.message) ? payload.message : 'Sauvegarde echouee.');
+            }
+
+            const aScore = document.getElementById('aScore');
+            const bScore = document.getElementById('bScore');
+            if (aScore && bScore) {
+                aScore.textContent = String(payload.score_team1 || 0);
+                bScore.textContent = String(payload.score_team2 || 0);
+            }
+
+            setFormState(form, 'Enregistre automatiquement');
+            showToast(payload.message || 'Score enregistre');
+        })
+        .catch((error) => {
+            setFormState(form, 'Echec sauvegarde. Retry...', true);
+            showToast(error.message || 'Erreur de sauvegarde');
+
+            const trialOrder = form.dataset.trialOrder || String(Date.now());
+            if (retryTimers.has(trialOrder)) {
+                clearTimeout(retryTimers.get(trialOrder));
+            }
+            const retryTimer = setTimeout(() => autoSave(form, true), 2500);
+            retryTimers.set(trialOrder, retryTimer);
+        });
+}
+
+function queueAutoSave(form) {
+    if (!form) {
+        return;
+    }
+
+    const trialOrder = form.dataset.trialOrder || String(Date.now());
+    if (saveTimers.has(trialOrder)) {
+        clearTimeout(saveTimers.get(trialOrder));
+    }
+
+    const timer = setTimeout(() => autoSave(form), 650);
+    saveTimers.set(trialOrder, timer);
+}
+
 document.querySelectorAll('input[type="number"]').forEach((input) => {
     input.addEventListener('input', updateTotalPreview);
+    input.addEventListener('input', () => queueAutoSave(input.closest('form')));
     input.addEventListener('blur', () => {
         if (Number(input.value) < 0 || Number.isNaN(Number(input.value))) {
             input.value = '0';
         }
         updateTotalPreview();
+        queueAutoSave(input.closest('form'));
     });
 });
 

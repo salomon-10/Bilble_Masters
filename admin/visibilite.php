@@ -13,11 +13,20 @@ $message = '';
 $messageType = '';
 $dbError = '';
 $matches = [];
+$tournament = null;
+$tournamentId = (int) ($_GET['tournament_id'] ?? $_POST['tournament_id'] ?? 0);
 
 try {
     $pdo = db();
+    $resolved = resolveTournamentId($pdo, $tournamentId > 0 ? $tournamentId : null);
+    if ($resolved === null) {
+        $dbError = 'Aucun tournoi disponible. Creez un tournoi d abord.';
+    } else {
+        $tournamentId = $resolved;
+        $tournament = fetchTournamentById($pdo, $tournamentId);
+    }
 
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tournamentId > 0) {
         validateCsrfOrFail($_POST['csrf_token'] ?? null);
 
         $matchId = (int) ($_POST['match_id'] ?? 0);
@@ -58,8 +67,11 @@ try {
         }
     }
 
-    $matches = fetchMatches($pdo);
+    if ($tournamentId > 0) {
+        $matches = fetchMatches($pdo, null, false, $tournamentId);
+    }
 } catch (Throwable $exception) {
+    error_log('[Bible_Master] admin/visibilite.php failed: ' . $exception->getMessage());
     $dbError = 'Erreur de base de donnees: impossible de charger ou mettre a jour les matchs.';
 }
 ?>
@@ -174,10 +186,11 @@ try {
             <div>
                 <h1>Visibilite des matchs</h1>
                 <p class="meta">Cette page gere seulement le statut et la publication. Le pilotage des epreuves se fait match par match.</p>
+                <p class="meta">Tournoi: <?php echo htmlspecialchars((string) ($tournament['name'] ?? 'Non defini'), ENT_QUOTES, 'UTF-8'); ?></p>
             </div>
             <div>
-                <a class="btn secondary" href="dashboard.php">Retour dashboard</a>
-                <a class="btn secondary" href="create_match.php">Creer un match</a>
+                <a class="btn secondary" href="/admin/tournament_dashboard.php?tournament_id=<?php echo (int) $tournamentId; ?>">Retour dashboard</a>
+                <a class="btn secondary" href="/admin/create_match.php?tournament_id=<?php echo (int) $tournamentId; ?>">Creer un match</a>
             </div>
         </section>
 
@@ -208,6 +221,7 @@ try {
                     <form method="post">
                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8'); ?>">
                         <input type="hidden" name="match_id" value="<?php echo (int) $match['id']; ?>">
+                        <input type="hidden" name="tournament_id" value="<?php echo (int) $tournamentId; ?>">
 
                         <select name="status">
                             <?php foreach ($allowedStatuses as $status): ?>
@@ -224,7 +238,7 @@ try {
                     </form>
 
                     <div>
-                        <a class="btn primary" href="set_score.php?match_id=<?php echo (int) $match['id']; ?>">Gestion des scores</a>
+                        <a class="btn primary" href="set_score.php?match_id=<?php echo (int) $match['id']; ?>&tournament_id=<?php echo (int) $tournamentId; ?>">Gestion des scores</a>
                     </div>
                 </div>
             <?php endforeach; ?>

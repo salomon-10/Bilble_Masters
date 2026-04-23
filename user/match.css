@@ -96,6 +96,23 @@ body {
     font-weight: 900;
     display: grid;
     place-items: center;
+    overflow: hidden;
+}
+
+.logo-emblem img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    font-size: 0;
+    color: transparent;
+}
+
+.logo-fallback {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
 }
 
 .logo-emblem.warm {
@@ -222,17 +239,149 @@ body {
 }
 
 @media (max-width: 980px) {
-    .top-zone,
-    .score-strip {
-        grid-template-columns: 1fr;
+    .page {
+        padding-top: 8px;
+    }
+
+    .top-zone {
+        grid-template-columns: minmax(0, 1fr) 132px minmax(0, 1fr);
+        min-height: 180px;
+    }
+
+    .team-zone {
+        padding: 14px 10px;
+        justify-content: center;
+        gap: 8px;
+    }
+
+    .team-name {
+        margin-top: 6px;
+        font-size: clamp(1.2rem, 3.6vw, 1.5rem);
+    }
+
+    .logo-emblem {
+        width: 78px;
+        height: 78px;
+        border-radius: 18px;
+        font-size: 1.9rem;
     }
 
     .versus-zone {
-        padding: 8px 0;
+        gap: 8px;
+    }
+
+    .vs-text {
+        font-size: 2.9rem;
+    }
+
+    .slash {
+        height: 52px;
+    }
+
+    .score-strip {
+        grid-template-columns: minmax(0, 1fr) 132px minmax(0, 1fr);
+        min-height: 102px;
+    }
+
+    .score-box {
+        font-size: clamp(2.4rem, 10vw, 3.7rem);
+    }
+
+    .middle-box {
+        gap: 6px;
+        padding: 8px 4px;
+    }
+
+    .date-text {
+        font-size: 0.76rem;
+        text-align: center;
     }
 
     .details-grid {
-        grid-template-columns: 1fr;
-        gap: 14px;
+        grid-template-columns: minmax(0, 1fr) minmax(150px, 42%) minmax(0, 1fr);
+        gap: 6px;
+        width: calc(100% - 12px);
+        padding: 16px 0 10px;
+    }
+
+    .column {
+        gap: 8px;
+    }
+
+    .column p {
+        font-size: clamp(0.95rem, 4vw, 1.4rem);
+    }
+
+    .trials-col p {
+        font-size: clamp(0.9rem, 3.4vw, 1.15rem);
+    }
+
+    .note {
+        font-size: 0.78rem;
+        padding: 10px 12px 12px;
+    }
+}
+
+@media (max-width: 560px) {
+    .top-zone {
+        grid-template-columns: minmax(0, 1fr) 108px minmax(0, 1fr);
+        min-height: 160px;
+    }
+
+    .team-zone {
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .team-label {
+        font-size: 0.72rem;
+        letter-spacing: 0.14em;
+    }
+
+    .team-name {
+        font-size: 1.05rem;
+    }
+
+    .logo-emblem {
+        width: 62px;
+        height: 62px;
+        border-radius: 16px;
+        font-size: 1.7rem;
+    }
+
+    .vs-text {
+        font-size: 2.5rem;
+    }
+
+    .slash {
+        height: 42px;
+    }
+
+    .score-strip {
+        grid-template-columns: minmax(0, 1fr) 108px minmax(0, 1fr);
+        min-height: 92px;
+    }
+
+    .status-pill {
+        padding: 5px 10px;
+        font-size: 0.7rem;
+    }
+
+    .details-grid {
+        grid-template-columns: minmax(0, 1fr) minmax(120px, 40%) minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 400px) {
+    .top-zone {
+        grid-template-columns: minmax(0, 1fr) 92px minmax(0, 1fr);
+    }
+
+    .score-strip {
+        grid-template-columns: minmax(0, 1fr) 92px minmax(0, 1fr);
+    }
+
+    .vs-text {
+        font-size: 2.2rem;
     }
 }
