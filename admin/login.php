@@ -12,7 +12,8 @@ try {
     $pdo = db();
     ensureDefaultAdmin($pdo);
 } catch (Throwable $exception) {
-    $dbError = 'Initialisation admin impossible. Verifiez la base et la configuration d environnement.';
+    error_log('[Bible_Master] admin/login.php failed: ' . $exception->getMessage());
+    $dbError = publicDatabaseErrorMessage($exception, 'Initialisation admin impossible. Verifiez la base et la configuration d environnement.');
 }
 
 if (isAdminAuthenticated()) {

@@ -15,6 +15,7 @@ $tournaments = [];
 $selectedTournamentId = 0;
 $selectedTournament = null;
 $teams = [];
+$unassignedTeams = [];
 $pools = [];
 $poolGroups = [];
 
@@ -99,6 +100,21 @@ try {
             }
         }
 
+        if ($action === 'delete_tournament') {
+            $targetTournamentId = (int) ($_POST['tournament_id'] ?? 0);
+            if ($targetTournamentId <= 0) {
+                $messageType = 'error';
+                $message = 'Tournoi invalide.';
+            } elseif (!deleteTournament($pdo, $targetTournamentId)) {
+                $messageType = 'error';
+                $message = 'Suppression du tournoi impossible.';
+            } else {
+                $selectedTournamentId = 0;
+                $messageType = 'success';
+                $message = 'Tournoi supprime avec succes.';
+            }
+        }
+
         if ($action === 'create_team') {
             $selectedTournamentId = (int) ($_POST['selected_tournament_id'] ?? 0);
             $teamName = trim((string) ($_POST['team_name'] ?? ''));
@@ -151,6 +167,22 @@ try {
             }
         }
 
+        if ($action === 'delete_team') {
+            $selectedTournamentId = (int) ($_POST['selected_tournament_id'] ?? 0);
+            $teamId = (int) ($_POST['team_id'] ?? 0);
+
+            if ($selectedTournamentId <= 0 || $teamId <= 0) {
+                $messageType = 'error';
+                $message = 'Equipe invalide.';
+            } elseif (!deleteTeam($pdo, $selectedTournamentId, $teamId)) {
+                $messageType = 'error';
+                $message = 'Suppression equipe impossible.';
+            } else {
+                $messageType = 'success';
+                $message = 'Equipe supprimee avec succes.';
+            }
+        }
+
         if ($action === 'create_pool') {
             $selectedTournamentId = (int) ($_POST['selected_tournament_id'] ?? 0);
             $poolName = trim((string) ($_POST['pool_name'] ?? ''));
@@ -180,7 +212,7 @@ try {
                 $message = 'Selection de poule/equipe invalide.';
             } elseif (!attachTeamToPool($pdo, $poolId, $teamId)) {
                 $messageType = 'error';
-                $message = 'Affectation impossible.';
+                $message = 'Affectation impossible: une equipe ne peut appartenir qu a une seule poule.';
             } else {
                 $messageType = 'success';
                 $message = 'Equipe affectee a la poule.';
@@ -197,12 +229,13 @@ try {
     if ($selectedTournamentId > 0) {
         $selectedTournament = fetchTournamentById($pdo, $selectedTournamentId);
         $teams = fetchTeams($pdo, $selectedTournamentId);
+        $unassignedTeams = fetchUnassignedTeams($pdo, $selectedTournamentId);
         $pools = fetchPools($pdo, $selectedTournamentId);
         $poolGroups = fetchTeamsGroupedByPool($pdo, $selectedTournamentId);
     }
 } catch (Throwable $exception) {
     error_log('[Bible_Master] admin/dashboard.php failed: ' . $exception->getMessage());
-    $dbError = 'Erreur base de donnees: impossible de charger le dashboard index.';
+    $dbError = publicDatabaseErrorMessage($exception, 'Erreur base de donnees: impossible de charger le dashboard index.');
 }
 ?>
 <!DOCTYPE html>
@@ -385,10 +418,18 @@ try {
                 <span class="chip">Aucun tournoi</span>
             <?php endif; ?>
             <?php foreach ($tournaments as $t): ?>
-                <a class="chip" href="dashboard.php?tournament_id=<?php echo (int) $t['id']; ?>">
-                    <?php echo htmlspecialchars((string) $t['name'], ENT_QUOTES, 'UTF-8'); ?>
-                    (<?php echo (int) $t['teams_count']; ?> equipes)
-                </a>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <a class="chip" href="dashboard.php?tournament_id=<?php echo (int) $t['id']; ?>">
+                        <?php echo htmlspecialchars((string) $t['name'], ENT_QUOTES, 'UTF-8'); ?>
+                        (<?php echo (int) $t['teams_count']; ?> equipes)
+                    </a>
+                    <form method="post" onsubmit="return confirm('Supprimer ce tournoi et toutes ses donnees ?');" style="margin:0;">
+                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8'); ?>">
+                        <input type="hidden" name="action" value="delete_tournament">
+                        <input type="hidden" name="tournament_id" value="<?php echo (int) $t['id']; ?>">
+                        <button type="submit" class="btn secondary" style="padding:6px 10px;">Supprimer</button>
+                    </form>
+                </div>
             <?php endforeach; ?>
         </div>
 
@@ -438,6 +479,13 @@ try {
                     <div class="team-row">
                         <img src="<?php echo htmlspecialchars((string) $team['logo_path'], ENT_QUOTES, 'UTF-8'); ?>" alt="logo equipe">
                         <span><?php echo htmlspecialchars((string) $team['name'], ENT_QUOTES, 'UTF-8'); ?></span>
+                        <form method="post" onsubmit="return confirm('Supprimer cette equipe ?');" style="margin-left:auto;">
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8'); ?>">
+                            <input type="hidden" name="action" value="delete_team">
+                            <input type="hidden" name="selected_tournament_id" value="<?php echo (int) $selectedTournamentId; ?>">
+                            <input type="hidden" name="team_id" value="<?php echo (int) $team['id']; ?>">
+                            <button type="submit" class="btn secondary" style="padding:6px 10px;">Supprimer</button>
+                        </form>
                     </div>
                 <?php endforeach; ?>
             </div>
@@ -475,15 +523,18 @@ try {
 
                 <div class="field">
                     <label for="team_id">Equipe</label>
-                    <select id="team_id" name="team_id" required>
+                    <select id="team_id" name="team_id" required <?php echo !$unassignedTeams ? 'disabled' : ''; ?>>
                         <option value="">Selectionner</option>
-                        <?php foreach ($teams as $team): ?>
+                        <?php foreach ($unassignedTeams as $team): ?>
                             <option value="<?php echo (int) $team['id']; ?>"><?php echo htmlspecialchars((string) $team['name'], ENT_QUOTES, 'UTF-8'); ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
 
-                <button type="submit">Affecter equipe</button>
+                <button type="submit" <?php echo !$unassignedTeams ? 'disabled' : ''; ?>>Affecter equipe</button>
+                <?php if (!$unassignedTeams): ?>
+                    <div class="muted">Toutes les equipes sont deja affectees a une poule.</div>
+                <?php endif; ?>
             </form>
 
             <div class="pools-list" style="margin-top:12px;">

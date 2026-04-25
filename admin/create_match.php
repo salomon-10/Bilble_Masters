@@ -29,44 +29,127 @@ try {
     }
 } catch (Throwable $exception) {
     error_log('[Bible_Master] admin/create_match.php failed: ' . $exception->getMessage());
-    $dbError = 'Connexion impossible a la base de donnees.';
+    $dbError = publicDatabaseErrorMessage($exception, 'Erreur base de donnees lors du chargement de la page.');
 }
 
 $allowedStatuses = ['Programme', 'En cours', 'Termine'];
-$allowedPhases = ['Poule', 'Quart', 'Demi', 'Finale'];
+$allowedPhases = ['Poule', 'Quart', 'Demi', 'PetiteFinale', 'Finale'];
+$phaseLabels = [
+    'Poule' => 'Poule',
+    'Quart' => 'Quart de finale',
+    'Demi' => 'Demi-finale',
+    'PetiteFinale' => 'Petite finale',
+    'Finale' => 'Finale',
+];
+$hasAdvancedRules = function_exists('areTeamsInSamePool') && function_exists('fetchTournamentQualification');
+
+if ($pdo instanceof PDO && function_exists('supportedMatchPhases')) {
+    $resolvedPhases = supportedMatchPhases($pdo);
+    if ($resolvedPhases !== []) {
+        $allowedPhases = $resolvedPhases;
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO && $tournamentId > 0) {
-    validateCsrfOrFail($_POST['csrf_token'] ?? null);
+    try {
+        validateCsrfOrFail($_POST['csrf_token'] ?? null);
 
-    $team1 = (int) ($_POST['team1'] ?? 0);
-    $team2 = (int) ($_POST['team2'] ?? 0);
-    $matchDate = (string) ($_POST['matchDate'] ?? '');
-    $matchTime = (string) ($_POST['matchTime'] ?? '');
-    $status = (string) ($_POST['status'] ?? 'Programme');
-    $phase = (string) ($_POST['phase'] ?? 'Poule');
+        $team1 = (int) ($_POST['team1'] ?? 0);
+        $team2 = (int) ($_POST['team2'] ?? 0);
+        $matchDate = (string) ($_POST['matchDate'] ?? '');
+        $status = (string) ($_POST['status'] ?? 'Programme');
+        $phase = (string) ($_POST['phase'] ?? 'Poule');
 
-    if ($team1 <= 0 || $team2 <= 0 || $matchDate === '' || $matchTime === '') {
-        $messageType = 'error';
-        $message = 'Veuillez completer tous les champs obligatoires.';
-    } elseif ($team1 === $team2) {
-        $messageType = 'error';
-        $message = 'Les deux equipes doivent etre differentes.';
-    } elseif (!in_array($status, $allowedStatuses, true)) {
-        $messageType = 'error';
-        $message = 'Le statut fourni est invalide.';
-    } elseif (!in_array($phase, $allowedPhases, true)) {
-        $messageType = 'error';
-        $message = 'La phase fournie est invalide.';
-    } else {
-        $newMatchId = createMatch($pdo, $tournamentId, $team1, $team2, $matchDate, $matchTime, $status, $phase);
-        if ($newMatchId === null) {
+        if ($team1 <= 0 || $team2 <= 0 || $matchDate === '') {
             $messageType = 'error';
-            $message = 'Creation du match impossible.';
+            $message = 'Veuillez completer tous les champs obligatoires.';
+        } elseif (!isValidIsoDate($matchDate)) {
+            $messageType = 'error';
+            $message = 'La date du match est invalide. Utilisez le format YYYY-MM-DD.';
+        } elseif ($team1 === $team2) {
+            $messageType = 'error';
+            $message = 'Les deux equipes doivent etre differentes.';
+        } elseif (!in_array($status, $allowedStatuses, true)) {
+            $messageType = 'error';
+            $message = 'Le statut fourni est invalide.';
+        } elseif (!in_array($phase, $allowedPhases, true)) {
+            $messageType = 'error';
+            $message = 'La phase fournie est invalide.';
+        } elseif (!matchesColumnSupportsValue($pdo, 'status', $status)) {
+            $messageType = 'error';
+            $message = 'Schema SQL obsolete: la colonne matches.status ne supporte pas cette valeur. Reimportez database/reinstall_clean.sql.';
+        } elseif (!matchesColumnSupportsValue($pdo, 'phase', $phase)) {
+            $messageType = 'error';
+            $message = 'Schema SQL obsolete: la colonne matches.phase ne supporte pas cette phase. Reimportez database/reinstall_clean.sql.';
+        } elseif (!$hasAdvancedRules) {
+            $messageType = 'error';
+            $message = 'Deploiement incomplet: mettez a jour config/repositories.php sur le serveur.';
         } else {
-            $createdMatch = fetchMatchById($pdo, $newMatchId);
-            $messageType = 'success';
-            $message = 'Match cree avec succes.';
+            if ($phase === 'Poule') {
+                $poolCount = function_exists('tournamentPoolCount') ? tournamentPoolCount($pdo, $tournamentId) : 0;
+                $legacyNoPoolMode = $poolCount === 0;
+
+                if (!$legacyNoPoolMode && !areTeamsInSamePool($pdo, $tournamentId, $team1, $team2)) {
+                    $messageType = 'error';
+                    $message = 'En phase Poule, les deux equipes doivent appartenir a la meme poule.';
+                }
+            } elseif ($phase === 'Demi') {
+                $qualification = fetchTournamentQualification($pdo, $tournamentId);
+                if (!($qualification['ready'] ?? false)) {
+                    $messageType = 'error';
+                    $message = 'Les demi-finales ne sont pas disponibles: terminez la phase de poules (6 matchs termines par poule).';
+                }
+            }
+
+            if ($messageType !== 'error') {
+                try {
+                    $createError = '';
+                    $newMatchId = createMatch($pdo, $tournamentId, $team1, $team2, $matchDate, '00:00:00', $status, $phase, $createError);
+                } catch (Throwable $createException) {
+                    error_log(
+                        '[Bible_Master] createMatch() failed: tournament_id=' . $tournamentId
+                        . ', team1=' . $team1
+                        . ', team2=' . $team2
+                        . ', phase=' . $phase
+                        . ', status=' . $status
+                        . ' | ' . $createException->getMessage()
+                    );
+                    $messageType = 'error';
+                    $mappedMessage = publicDatabaseErrorMessage($createException, '');
+                    $message = $mappedMessage !== ''
+                        ? $mappedMessage
+                        : 'Erreur applicative pendant la creation du match (CM-500).';
+                    $newMatchId = null;
+                }
+
+                if ($messageType !== 'error') {
+                    if ($newMatchId === null) {
+                        $messageType = 'error';
+                        $message = $createError !== ''
+                            ? $createError
+                            : 'Creation du match impossible (regles de phase/poule/qualification non satisfaites).';
+                    } else {
+                        $messageType = 'success';
+                        $message = 'Match cree avec succes.';
+
+                        // Do not turn a successful insert into a global failure if the preview query fails.
+                        try {
+                            $createdMatch = fetchMatchById($pdo, $newMatchId);
+                        } catch (Throwable $previewException) {
+                            error_log('[Bible_Master] create_match preview fetch failed for match_id=' . $newMatchId . ': ' . $previewException->getMessage());
+                            $createdMatch = null;
+                        }
+                    }
+                }
+            }
         }
+    } catch (Throwable $exception) {
+        error_log('[Bible_Master] create_match submit failed: ' . $exception->getMessage());
+        $messageType = 'error';
+        $mappedMessage = publicDatabaseErrorMessage($exception, '');
+        $message = $mappedMessage !== ''
+            ? $mappedMessage
+            : 'Erreur applicative pendant la creation du match (CM-501).';
     }
 }
 ?>
@@ -128,16 +211,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO && $tournamentI
                         </div>
                     </div>
 
-                    <div class="field-row">
-                        <div class="field-group">
-                            <label class="required" for="matchDate">Date du match</label>
-                            <input id="matchDate" name="matchDate" type="date" required />
-                        </div>
-
-                        <div class="field-group">
-                            <label class="required" for="matchTime">Heure du match</label>
-                            <input id="matchTime" name="matchTime" type="time" required />
-                        </div>
+                    <div class="field-group">
+                        <label class="required" for="matchDate">Date du match</label>
+                        <input id="matchDate" name="matchDate" type="date" required />
                     </div>
 
                     <div class="field-group">
@@ -152,10 +228,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO && $tournamentI
                     <div class="field-group">
                         <label class="required" for="phase">Phase</label>
                         <select id="phase" name="phase" required>
-                            <option value="Poule">Poule</option>
-                            <option value="Quart">Quart de finale</option>
-                            <option value="Demi">Demi-finale</option>
-                            <option value="Finale">Finale</option>
+                            <?php foreach ($allowedPhases as $phaseValue): ?>
+                                <option value="<?php echo htmlspecialchars($phaseValue, ENT_QUOTES, 'UTF-8'); ?>">
+                                    <?php echo htmlspecialchars($phaseLabels[$phaseValue] ?? $phaseValue, ENT_QUOTES, 'UTF-8'); ?>
+                                </option>
+                            <?php endforeach; ?>
                         </select>
                     </div>
 
@@ -174,7 +251,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO && $tournamentI
                             <li><span class="key">Equipe 1</span><span class="value"><?php echo htmlspecialchars($createdMatch['team1_name'], ENT_QUOTES, 'UTF-8'); ?></span></li>
                             <li><span class="key">Equipe 2</span><span class="value"><?php echo htmlspecialchars($createdMatch['team2_name'], ENT_QUOTES, 'UTF-8'); ?></span></li>
                             <li><span class="key">Date</span><span class="value"><?php echo htmlspecialchars((string) $createdMatch['match_date'], ENT_QUOTES, 'UTF-8'); ?></span></li>
-                            <li><span class="key">Heure</span><span class="value"><?php echo htmlspecialchars(substr((string) $createdMatch['match_time'], 0, 5), ENT_QUOTES, 'UTF-8'); ?></span></li>
+                            <li><span class="key">Phase</span><span class="value"><?php echo htmlspecialchars((string) $createdMatch['phase'], ENT_QUOTES, 'UTF-8'); ?></span></li>
                             <li><span class="key">Statut</span><span class="value"><?php echo htmlspecialchars((string) $createdMatch['status'], ENT_QUOTES, 'UTF-8'); ?></span></li>
                         </ul>
                     <?php else: ?>

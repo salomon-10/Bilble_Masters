@@ -25,6 +25,37 @@ function respondJson(array $payload, int $status = 200): never
     exit;
 }
 
+function resetMatchTrialsAndTotals(PDO $pdo, int $matchId): void
+{
+    $pdo->beginTransaction();
+
+    try {
+        $resetTrials = $pdo->prepare(
+            'UPDATE match_trials
+             SET team1_points = 0,
+                 team2_points = 0
+             WHERE match_id = :match_id'
+        );
+        $resetTrials->execute([':match_id' => $matchId]);
+
+        $resetMatch = $pdo->prepare(
+            'UPDATE matches
+             SET score_team1 = 0,
+                 score_team2 = 0
+             WHERE id = :id'
+        );
+        $resetMatch->execute([':id' => $matchId]);
+
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $exception;
+    }
+}
+
 if ($matchId <= 0) {
     $dbError = 'Match invalide.';
 } else {
@@ -44,15 +75,26 @@ if ($matchId <= 0) {
             if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 validateCsrfOrFail($_POST['csrf_token'] ?? null);
                 $action = (string) ($_POST['action'] ?? '');
+                $match = fetchMatchById($pdo, $matchId);
+                $currentStatus = (string) (($match['status'] ?? 'Programme'));
 
                 if ($action === 'autosave_trial') {
                     $trialOrder = (int) ($_POST['trial_order'] ?? 0);
                     $team1Raw = trim((string) ($_POST['team1_points'] ?? '0'));
                     $team2Raw = trim((string) ($_POST['team2_points'] ?? '0'));
 
+                    if ($currentStatus !== 'En cours') {
+                        respondJson([
+                            'ok' => false,
+                            'retryable' => false,
+                            'message' => 'Scores verrouilles: demarrez le match avant toute modification.',
+                        ], 409);
+                    }
+
                     if ($trialOrder <= 0 || !preg_match('/^[0-9]+$/', $team1Raw) || !preg_match('/^[0-9]+$/', $team2Raw)) {
                         respondJson([
                             'ok' => false,
+                            'retryable' => false,
                             'message' => 'Valeurs invalides.',
                         ], 422);
                     }
@@ -63,25 +105,13 @@ if ($matchId <= 0) {
                     if (!updateMatchTrial($pdo, $matchId, $trialOrder, $team1Points, $team2Points)) {
                         respondJson([
                             'ok' => false,
+                            'retryable' => false,
                             'message' => 'Epreuve introuvable.',
                         ], 404);
                     }
 
                     syncMatchTotalsFromTrials($pdo, $matchId);
                     $updated = fetchMatchById($pdo, $matchId);
-                    if ($updated && (string) ($updated['status'] ?? 'Programme') === 'Programme') {
-                        updateMatchState(
-                            $pdo,
-                            $matchId,
-                            'En cours',
-                            (int) ($updated['score_team1'] ?? 0),
-                            (int) ($updated['score_team2'] ?? 0),
-                            (int) ($updated['published'] ?? 1) === 1,
-                            (int) ($_SESSION['admin_id'] ?? 0),
-                            (string) ($_SESSION['admin_username'] ?? 'admin')
-                        );
-                        $updated = fetchMatchById($pdo, $matchId);
-                    }
 
                     respondJson([
                         'ok' => true,
@@ -93,6 +123,15 @@ if ($matchId <= 0) {
                 }
 
                 if ($action === 'start_match') {
+                    if ($currentStatus !== 'Programme') {
+                        $messageType = 'error';
+                        $message = $currentStatus === 'Termine'
+                            ? 'Ce match est deja termine: impossible de le redemarrer.'
+                            : 'Ce match est deja en cours.';
+                    } else {
+                    resetMatchTrialsAndTotals($pdo, $matchId);
+                    $match = fetchMatchById($pdo, $matchId);
+
                     updateMatchState(
                         $pdo,
                         $matchId,
@@ -105,15 +144,20 @@ if ($matchId <= 0) {
                     );
                     $messageType = 'success';
                     $message = 'Match demarre.';
+                    }
                 }
 
                 if ($action === 'end_match') {
-                    syncMatchTotalsFromTrials($pdo, $matchId);
-                    $updated = fetchMatchById($pdo, $matchId);
-                    if (!$updated) {
+                    if ($currentStatus !== 'En cours') {
                         $messageType = 'error';
-                        $message = 'Impossible de finaliser ce match.';
+                        $message = 'Impossible de terminer: le match doit etre en cours.';
                     } else {
+                        syncMatchTotalsFromTrials($pdo, $matchId);
+                        $updated = fetchMatchById($pdo, $matchId);
+                        if (!$updated) {
+                            $messageType = 'error';
+                            $message = 'Impossible de finaliser ce match.';
+                        } else {
                         updateMatchState(
                             $pdo,
                             $matchId,
@@ -126,6 +170,7 @@ if ($matchId <= 0) {
                         );
                         $messageType = 'success';
                         $message = 'Match termine.';
+                        }
                     }
                 }
 
@@ -137,6 +182,9 @@ if ($matchId <= 0) {
                     if ($trialOrder <= 0 || !preg_match('/^[0-9]+$/', $team1Raw) || !preg_match('/^[0-9]+$/', $team2Raw)) {
                         $messageType = 'error';
                         $message = 'Valeurs d epreuve invalides.';
+                    } elseif ($currentStatus !== 'En cours') {
+                        $messageType = 'error';
+                        $message = 'Scores verrouilles: demarrez le match avant toute modification.';
                     } else {
                         $team1Points = (int) $team1Raw;
                         $team2Points = (int) $team2Raw;
@@ -159,7 +207,7 @@ if ($matchId <= 0) {
         }
     } catch (Throwable $exception) {
         error_log('[Bible_Master] set_score.php failed for match_id=' . $matchId . ': ' . $exception->getMessage());
-        $dbError = 'Erreur de base de donnees lors du chargement du match.';
+        $dbError = publicDatabaseErrorMessage($exception, 'Erreur de base de donnees lors du chargement du match.');
     }
 }
 
@@ -762,18 +810,20 @@ body::after {
                                 <input type="hidden" name="trial_order" value="<?php echo (int) $trial['trial_order']; ?>">
                                 <div class="rows">
                                     <div class="row a">
-                                        <button class="btn" type="button" onclick="step(this, -10)">-</button>
-                                        <div class="value"><input type="number" name="team1_points" value="<?php echo (int) $trial['team1_points']; ?>" min="0" step="10" required></div>
-                                        <button class="btn" type="button" onclick="step(this, 10)">+</button>
+                                        <button class="btn" type="button" onclick="step(this, -10)" <?php echo $status !== 'En cours' ? 'disabled' : ''; ?>>-</button>
+                                        <div class="value"><input type="number" name="team1_points" value="<?php echo (int) $trial['team1_points']; ?>" min="0" step="10" required <?php echo $status !== 'En cours' ? 'disabled' : ''; ?>></div>
+                                        <button class="btn" type="button" onclick="step(this, 10)" <?php echo $status !== 'En cours' ? 'disabled' : ''; ?>>+</button>
                                     </div>
                                     <div class="row b">
-                                        <button class="btn" type="button" onclick="step(this, -10)">-</button>
-                                        <div class="value"><input type="number" name="team2_points" value="<?php echo (int) $trial['team2_points']; ?>" min="0" step="10" required></div>
-                                        <button class="btn" type="button" onclick="step(this, 10)">+</button>
+                                        <button class="btn" type="button" onclick="step(this, -10)" <?php echo $status !== 'En cours' ? 'disabled' : ''; ?>>-</button>
+                                        <div class="value"><input type="number" name="team2_points" value="<?php echo (int) $trial['team2_points']; ?>" min="0" step="10" required <?php echo $status !== 'En cours' ? 'disabled' : ''; ?>></div>
+                                        <button class="btn" type="button" onclick="step(this, 10)" <?php echo $status !== 'En cours' ? 'disabled' : ''; ?>>+</button>
                                     </div>
                                 </div>
-                                <p class="muted-state" style="font-size:12px;color:#b9c6da;">Sauvegarde automatique active</p>
-                            </form>
+                                <p class="muted-state" style="font-size:12px;color:#b9c6da;">
+                                    <?php echo $status === 'En cours' ? 'Sauvegarde automatique active' : 'Edition verrouillee: cliquez sur Demarrer pour modifier les scores'; ?>
+                                </p>
+                            </form> 
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -802,7 +852,14 @@ body::after {
 </div>
 <div class="toast" id="toast">Score enregistre</div>
 <script>
+const isLiveMatch = <?php echo $status === 'En cours' ? 'true' : 'false'; ?>;
+
 function step(button, delta) {
+    if (!isLiveMatch) {
+        showToast('Scores verrouilles: demarrez le match avant toute modification.');
+        return;
+    }
+
     const row = button.closest('.row');
     const input = row.querySelector('input[type="number"]');
     const current = Number(input.value || 0);
@@ -857,6 +914,11 @@ function setFormState(form, text, isError = false) {
 }
 
 function autoSave(form, fromRetry = false) {
+    if (!isLiveMatch) {
+        setFormState(form, 'Edition verrouillee: cliquez sur Demarrer');
+        return;
+    }
+
     const formData = new FormData(form);
 
     setFormState(form, fromRetry ? 'Nouvelle tentative...' : 'Sauvegarde...');
@@ -877,7 +939,15 @@ function autoSave(form, fromRetry = false) {
             }
 
             if (!response.ok || !payload || payload.ok !== true) {
-                throw new Error((payload && payload.message) ? payload.message : 'Sauvegarde echouee.');
+                const message = (payload && payload.message) ? payload.message : 'Sauvegarde echouee.';
+                const retryable = payload && payload.retryable === true;
+                if (!retryable) {
+                    setFormState(form, message, true);
+                    showToast(message);
+                    return;
+                }
+
+                throw new Error(message);
             }
 
             const aScore = document.getElementById('aScore');
@@ -905,6 +975,11 @@ function autoSave(form, fromRetry = false) {
 
 function queueAutoSave(form) {
     if (!form) {
+        return;
+    }
+
+    if (!isLiveMatch) {
+        setFormState(form, 'Edition verrouillee: cliquez sur Demarrer');
         return;
     }
 

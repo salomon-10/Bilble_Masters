@@ -9,6 +9,8 @@ $allPublishedMatches = [];
 $tournaments = [];
 $selectedTournamentId = (int) ($_GET['tournament_id'] ?? 0);
 $selectedTournament = null;
+$poolStandings = [];
+$eliminatedTeamIds = [];
 
 try {
     $pdo = db();
@@ -18,10 +20,13 @@ try {
         $selectedTournamentId = $resolved;
         $selectedTournament = fetchTournamentById($pdo, $selectedTournamentId);
         $allPublishedMatches = fetchMatches($pdo, null, true, $selectedTournamentId);
+        $qualification = fetchTournamentQualification($pdo, $selectedTournamentId);
+        $poolStandings = $qualification['standings'] ?? [];
+        $eliminatedTeamIds = $qualification['eliminated_ids'] ?? [];
     }
 } catch (Throwable $exception) {
     error_log('[Bible_Master] user/index.php failed: ' . $exception->getMessage());
-    $dbError = 'Connexion impossible a la base de donnees. Verifiez les parametres InfinityFree.';
+    $dbError = publicDatabaseErrorMessage($exception, 'Erreur de chargement des matchs.');
 }
 
 $search = trim((string) ($_GET['q'] ?? ''));
@@ -59,7 +64,6 @@ $live = array_values(array_filter($matches, static fn(array $m): bool => $m['sta
 $upcoming = array_values(array_filter($matches, static fn(array $m): bool => $m['status'] === 'Programme'));
 $past = array_values(array_filter($matches, static fn(array $m): bool => $m['status'] === 'Termine'));
 
-$standings = buildStandings($allPublishedMatches);
 $nowTime = date('H:i:s');
 
 function scoreText(array $match): string
@@ -84,93 +88,6 @@ function statusClass(string $status): string
     return 'upcoming';
 }
 
-/**
- * Build a simple ranking table from finished matches.
- * Rules: win=3, draw=1, loss=0, then GD, GF, team name.
- */
-function buildStandings(array $matches): array
-{
-    $table = [];
-
-    foreach ($matches as $match) {
-        if ((string) $match['status'] !== 'Termine') {
-            continue;
-        }
-
-        if ($match['score_team1'] === null || $match['score_team2'] === null) {
-            continue;
-        }
-
-        $teamA = (string) $match['team1_name'];
-        $teamB = (string) $match['team2_name'];
-
-        foreach ([$teamA, $teamB] as $teamName) {
-            if (!isset($table[$teamName])) {
-                $table[$teamName] = [
-                    'team' => $teamName,
-                    'played' => 0,
-                    'won' => 0,
-                    'drawn' => 0,
-                    'lost' => 0,
-                    'gf' => 0,
-                    'ga' => 0,
-                    'gd' => 0,
-                    'points' => 0,
-                ];
-            }
-        }
-
-        $scoreA = (int) $match['score_team1'];
-        $scoreB = (int) $match['score_team2'];
-
-        $table[$teamA]['played']++;
-        $table[$teamB]['played']++;
-
-        $table[$teamA]['gf'] += $scoreA;
-        $table[$teamA]['ga'] += $scoreB;
-        $table[$teamB]['gf'] += $scoreB;
-        $table[$teamB]['ga'] += $scoreA;
-
-        if ($scoreA > $scoreB) {
-            $table[$teamA]['won']++;
-            $table[$teamA]['points'] += 3;
-            $table[$teamB]['lost']++;
-        } elseif ($scoreA < $scoreB) {
-            $table[$teamB]['won']++;
-            $table[$teamB]['points'] += 3;
-            $table[$teamA]['lost']++;
-        } else {
-            $table[$teamA]['drawn']++;
-            $table[$teamB]['drawn']++;
-            $table[$teamA]['points']++;
-            $table[$teamB]['points']++;
-        }
-
-        $table[$teamA]['gd'] = $table[$teamA]['gf'] - $table[$teamA]['ga'];
-        $table[$teamB]['gd'] = $table[$teamB]['gf'] - $table[$teamB]['ga'];
-    }
-
-    $rows = array_values($table);
-
-    usort(
-        $rows,
-        static function (array $a, array $b): int {
-            if ($a['points'] !== $b['points']) {
-                return $b['points'] <=> $a['points'];
-            }
-            if ($a['gd'] !== $b['gd']) {
-                return $b['gd'] <=> $a['gd'];
-            }
-            if ($a['gf'] !== $b['gf']) {
-                return $b['gf'] <=> $a['gf'];
-            }
-
-            return strcmp((string) $a['team'], (string) $b['team']);
-        }
-    );
-
-    return $rows;
-}
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -220,7 +137,7 @@ function buildStandings(array $matches): array
                     <article class="match-row">
                         <div class="match-main">
                             <p class="teams"><?php echo htmlspecialchars($match['team1_name'], ENT_QUOTES, 'UTF-8'); ?> vs <?php echo htmlspecialchars($match['team2_name'], ENT_QUOTES, 'UTF-8'); ?></p>
-                            <p class="meta"><?php echo htmlspecialchars((string) $match['match_date'], ENT_QUOTES, 'UTF-8'); ?> - <?php echo htmlspecialchars(substr((string) $match['match_time'], 0, 5), ENT_QUOTES, 'UTF-8'); ?></p>
+                            <p class="meta"><?php echo htmlspecialchars((string) $match['match_date'], ENT_QUOTES, 'UTF-8'); ?></p>
                         </div>
                         <div class="match-side">
                             <p class="score"><?php echo htmlspecialchars(scoreText($match), ENT_QUOTES, 'UTF-8'); ?></p>
@@ -242,7 +159,7 @@ function buildStandings(array $matches): array
                         <article class="match-row">
                             <div class="match-main">
                                 <p class="teams"><?php echo htmlspecialchars($match['team1_name'], ENT_QUOTES, 'UTF-8'); ?> vs <?php echo htmlspecialchars($match['team2_name'], ENT_QUOTES, 'UTF-8'); ?></p>
-                                <p class="meta"><?php echo htmlspecialchars((string) $match['match_date'], ENT_QUOTES, 'UTF-8'); ?> - <?php echo htmlspecialchars(substr((string) $match['match_time'], 0, 5), ENT_QUOTES, 'UTF-8'); ?></p>
+                                <p class="meta"><?php echo htmlspecialchars((string) $match['match_date'], ENT_QUOTES, 'UTF-8'); ?></p>
                             </div>
                             <div class="match-side">
                                 <p class="score"><?php echo htmlspecialchars(scoreText($match), ENT_QUOTES, 'UTF-8'); ?></p>
@@ -263,7 +180,7 @@ function buildStandings(array $matches): array
                         <article class="match-row">
                             <div class="match-main">
                                 <p class="teams"><?php echo htmlspecialchars($match['team1_name'], ENT_QUOTES, 'UTF-8'); ?> vs <?php echo htmlspecialchars($match['team2_name'], ENT_QUOTES, 'UTF-8'); ?></p>
-                                <p class="meta"><?php echo htmlspecialchars((string) $match['match_date'], ENT_QUOTES, 'UTF-8'); ?> - <?php echo htmlspecialchars(substr((string) $match['match_time'], 0, 5), ENT_QUOTES, 'UTF-8'); ?></p>
+                                <p class="meta"><?php echo htmlspecialchars((string) $match['match_date'], ENT_QUOTES, 'UTF-8'); ?></p>
                             </div>
                             <div class="match-side">
                                 <p class="score"><?php echo htmlspecialchars(scoreText($match), ENT_QUOTES, 'UTF-8'); ?></p>
@@ -278,46 +195,57 @@ function buildStandings(array $matches): array
 
         <section class="card standings-card">
             <div class="section-head">
-                <h2>Classement automatique</h2>
-                <span class="badge"><?php echo count($standings); ?></span>
+                <h2>Classement par poule</h2>
+                <span class="badge"><?php echo count($poolStandings); ?></span>
             </div>
 
-            <?php if (!$standings): ?>
-                <p class="empty">Aucune equipe disponible pour le classement.</p>
+            <?php if (!$poolStandings): ?>
+                <p class="empty">Aucune poule disponible pour le classement.</p>
             <?php else: ?>
-                <div class="standings-wrap">
-                    <table class="standings-table" aria-label="Classement des equipes">
-                        <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>Equipe</th>
-                                <th>Pts</th>
-                                <th>J</th>
-                                <th>V</th>
-                                <th>N</th>
-                                <th>D</th>
-                                <th>BP</th>
-                                <th>BC</th>
-                                <th>Diff</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($standings as $index => $row): ?>
-                                <tr>
-                                    <td><?php echo $index + 1; ?></td>
-                                    <td><?php echo htmlspecialchars((string) $row['team'], ENT_QUOTES, 'UTF-8'); ?></td>
-                                    <td><strong><?php echo (int) $row['points']; ?></strong></td>
-                                    <td><?php echo (int) $row['played']; ?></td>
-                                    <td><?php echo (int) $row['won']; ?></td>
-                                    <td><?php echo (int) $row['drawn']; ?></td>
-                                    <td><?php echo (int) $row['lost']; ?></td>
-                                    <td><?php echo (int) $row['gf']; ?></td>
-                                    <td><?php echo (int) $row['ga']; ?></td>
-                                    <td><?php echo (int) $row['gd']; ?></td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
+                <div class="standings-wrap" style="display:grid;gap:16px;">
+                    <?php foreach ($poolStandings as $poolName => $poolRows): ?>
+                        <div>
+                            <h3 style="margin:0 0 8px;">Poule <?php echo htmlspecialchars((string) $poolName, ENT_QUOTES, 'UTF-8'); ?></h3>
+                            <table class="standings-table" aria-label="Classement poule <?php echo htmlspecialchars((string) $poolName, ENT_QUOTES, 'UTF-8'); ?>">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Equipe</th>
+                                        <th>Pts</th>
+                                        <th>J</th>
+                                        <th>V</th>
+                                        <th>N</th>
+                                        <th>D</th>
+                                        <th>BP</th>
+                                        <th>BC</th>
+                                        <th>Diff</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($poolRows as $index => $row): ?>
+                                        <?php $isEliminated = in_array((int) ($row['team_id'] ?? 0), $eliminatedTeamIds, true); ?>
+                                        <tr>
+                                            <td><?php echo $index + 1; ?></td>
+                                            <td>
+                                                <?php echo htmlspecialchars((string) $row['team'], ENT_QUOTES, 'UTF-8'); ?>
+                                                <?php if ($isEliminated): ?>
+                                                    <span style="display:inline-block;margin-left:6px;padding:2px 7px;border-radius:999px;background:rgba(239,68,68,.14);border:1px solid rgba(239,68,68,.35);font-size:.75rem;">Elimine</span>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td><strong><?php echo (int) $row['points']; ?></strong></td>
+                                            <td><?php echo (int) $row['played']; ?></td>
+                                            <td><?php echo (int) $row['won']; ?></td>
+                                            <td><?php echo (int) $row['drawn']; ?></td>
+                                            <td><?php echo (int) $row['lost']; ?></td>
+                                            <td><?php echo (int) $row['gf']; ?></td>
+                                            <td><?php echo (int) $row['ga']; ?></td>
+                                            <td><?php echo (int) $row['gd']; ?></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endforeach; ?>
                 </div>
             <?php endif; ?>
         </section>

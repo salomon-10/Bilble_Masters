@@ -53,7 +53,7 @@ function matchState(match) {
     return 'Programme';
 }
 
-function renderTeams(teams) {
+function renderTeams(teams, eliminatedIds, qualifiedIds) {
     const root = document.getElementById('teams');
     root.innerHTML = '';
 
@@ -63,11 +63,15 @@ function renderTeams(teams) {
     }
 
     teams.forEach((team) => {
+        const isEliminated = eliminatedIds.includes(Number(team.id));
+        const isQualified = qualifiedIds.includes(Number(team.id));
         const item = document.createElement('article');
         item.className = 'team';
         item.innerHTML = `
             <img src="${team.logo_path}" alt="Logo ${team.name}">
             <span>${team.name}</span>
+            ${isEliminated ? '<strong class="status-tag eliminated">Elimine</strong>' : ''}
+            ${!isEliminated && isQualified ? '<strong class="status-tag qualified">Qualifie</strong>' : ''}
         `;
         root.appendChild(item);
     });
@@ -105,8 +109,8 @@ function renderBracket(bracket) {
 
     const phases = [
         ['Poule', 'Phase de poules'],
-        ['Quart', 'Quart de finale'],
         ['Demi', 'Demi-finale'],
+        ['PetiteFinale', 'Petite finale'],
         ['Finale', 'Finale']
     ];
 
@@ -152,7 +156,10 @@ fetch(`/user/team_data.php?tournament_id=${tournamentId}`)
         document.getElementById('title').textContent = `Equipes - ${tournamentName}`;
         document.getElementById('subtitle').textContent = 'Affichage dynamique des equipes, poules et arbre de progression.';
 
-        renderTeams(payload.teams || []);
+        const eliminated = (payload.eliminated_team_ids || []).map(Number);
+        const qualified = (payload.qualified_team_ids || []).map(Number);
+
+        renderTeams(payload.teams || [], eliminated, qualified);
         renderPools(payload.pools || {});
         renderBracket(payload.bracket || {});
     })

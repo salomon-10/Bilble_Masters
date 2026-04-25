@@ -1,16 +1,22 @@
+-- Bible Master: clean, deterministic rebuild for production/local.
+-- Safe to import repeatedly because tables are dropped in dependency order.
+
 CREATE DATABASE IF NOT EXISTS bible_master CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE bible_master;
 
 SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
 
-CREATE TABLE IF NOT EXISTS admins (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    username VARCHAR(50) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB;
+DROP TABLE IF EXISTS match_change_logs;
+DROP TABLE IF EXISTS match_trials;
+DROP TABLE IF EXISTS matches;
+DROP TABLE IF EXISTS pool_teams;
+DROP TABLE IF EXISTS pools;
+DROP TABLE IF EXISTS teams;
+DROP TABLE IF EXISTS admins;
+DROP TABLE IF EXISTS tournaments;
 
-CREATE TABLE IF NOT EXISTS tournaments (
+CREATE TABLE tournaments (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(120) NOT NULL,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
@@ -18,7 +24,14 @@ CREATE TABLE IF NOT EXISTS tournaments (
     UNIQUE KEY uq_tournament_name (name)
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS teams (
+CREATE TABLE admins (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE teams (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     tournament_id INT UNSIGNED NOT NULL,
     name VARCHAR(100) NOT NULL,
@@ -33,7 +46,7 @@ CREATE TABLE IF NOT EXISTS teams (
         ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS pools (
+CREATE TABLE pools (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     tournament_id INT UNSIGNED NOT NULL,
     name VARCHAR(40) NOT NULL,
@@ -44,7 +57,7 @@ CREATE TABLE IF NOT EXISTS pools (
         ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS pool_teams (
+CREATE TABLE pool_teams (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     pool_id INT UNSIGNED NOT NULL,
     team_id INT UNSIGNED NOT NULL,
@@ -59,7 +72,7 @@ CREATE TABLE IF NOT EXISTS pool_teams (
         ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS matches (
+CREATE TABLE matches (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     tournament_id INT UNSIGNED NOT NULL,
     team1_id INT UNSIGNED NOT NULL,
@@ -89,7 +102,7 @@ CREATE TABLE IF NOT EXISTS matches (
     INDEX idx_matches_phase (phase)
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS match_trials (
+CREATE TABLE match_trials (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     match_id INT UNSIGNED NOT NULL,
     trial_order TINYINT UNSIGNED NOT NULL,
@@ -98,14 +111,14 @@ CREATE TABLE IF NOT EXISTS match_trials (
     team2_points INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_match_trial_order (match_id, trial_order),
+    INDEX idx_match_trials_match_id (match_id),
     CONSTRAINT fk_match_trials_match
         FOREIGN KEY (match_id) REFERENCES matches(id)
-        ON DELETE CASCADE ON UPDATE CASCADE,
-    UNIQUE KEY uq_match_trial_order (match_id, trial_order),
-    INDEX idx_match_trials_match_id (match_id)
+        ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS match_change_logs (
+CREATE TABLE match_change_logs (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     match_id INT UNSIGNED NOT NULL,
     admin_id INT UNSIGNED NOT NULL,
@@ -120,19 +133,17 @@ CREATE TABLE IF NOT EXISTS match_change_logs (
     old_published TINYINT(1) NULL,
     new_published TINYINT(1) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_match_change_logs_match_id (match_id),
+    INDEX idx_match_change_logs_created_at (created_at),
     CONSTRAINT fk_match_change_logs_match
         FOREIGN KEY (match_id) REFERENCES matches(id)
         ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_match_change_logs_admin
         FOREIGN KEY (admin_id) REFERENCES admins(id)
-        ON DELETE RESTRICT ON UPDATE CASCADE,
-    INDEX idx_match_change_logs_match_id (match_id),
-    INDEX idx_match_change_logs_created_at (created_at)
+        ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB;
 
 INSERT INTO tournaments (name, is_active)
-SELECT 'Tournoi principal', 1
-WHERE NOT EXISTS (SELECT 1 FROM tournaments);
+VALUES ('Tournoi principal', 1);
 
--- Admin seed intentionally omitted for security.
--- Create at least one admin account manually before using /admin/login.php.
+SET FOREIGN_KEY_CHECKS = 1;

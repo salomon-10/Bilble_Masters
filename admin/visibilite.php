@@ -68,11 +68,11 @@ try {
     }
 
     if ($tournamentId > 0) {
-        $matches = fetchMatches($pdo, null, false, $tournamentId);
+        $matches = fetchMatches($pdo, null, false, $tournamentId, null, true);
     }
 } catch (Throwable $exception) {
     error_log('[Bible_Master] admin/visibilite.php failed: ' . $exception->getMessage());
-    $dbError = 'Erreur de base de donnees: impossible de charger ou mettre a jour les matchs.';
+    $dbError = publicDatabaseErrorMessage($exception, 'Erreur de base de donnees: impossible de charger ou mettre a jour les matchs.');
 }
 ?>
 <!DOCTYPE html>
@@ -214,7 +214,7 @@ try {
                 <div class="row">
                     <div>
                         <strong><?php echo htmlspecialchars($match['team1_name'], ENT_QUOTES, 'UTF-8'); ?> vs <?php echo htmlspecialchars($match['team2_name'], ENT_QUOTES, 'UTF-8'); ?></strong>
-                        <div class="meta"><?php echo htmlspecialchars((string) $match['match_date'], ENT_QUOTES, 'UTF-8'); ?> - <?php echo htmlspecialchars(substr((string) $match['match_time'], 0, 5), ENT_QUOTES, 'UTF-8'); ?></div>
+                        <div class="meta"><?php echo htmlspecialchars((string) $match['match_date'], ENT_QUOTES, 'UTF-8'); ?> | Phase: <?php echo htmlspecialchars((string) $match['phase'], ENT_QUOTES, 'UTF-8'); ?></div>
                         <div class="meta">Score actuel: <?php echo $match['score_team1'] === null ? '-' : (int) $match['score_team1']; ?> - <?php echo $match['score_team2'] === null ? '-' : (int) $match['score_team2']; ?></div>
                     </div>
 

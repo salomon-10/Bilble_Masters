@@ -26,6 +26,7 @@ try {
     $teams = fetchTeams($pdo, $resolved);
     $poolGroups = fetchTeamsGroupedByPool($pdo, $resolved);
     $bracket = fetchTournamentBracket($pdo, $resolved);
+    $qualification = fetchTournamentQualification($pdo, $resolved);
 
     echo json_encode([
         'ok' => true,
@@ -33,12 +34,16 @@ try {
         'teams' => $teams,
         'pools' => $poolGroups,
         'bracket' => $bracket,
+        'pool_standings' => $qualification['standings'] ?? [],
+        'qualified_team_ids' => $qualification['qualified_ids'] ?? [],
+        'eliminated_team_ids' => $qualification['eliminated_ids'] ?? [],
+        'qualification_ready' => (bool) ($qualification['ready'] ?? false),
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 } catch (Throwable $exception) {
     error_log('[Bible_Master] user/team_data.php failed: ' . $exception->getMessage());
     http_response_code(500);
     echo json_encode([
         'ok' => false,
-        'message' => 'Erreur lors du chargement des donnees equipes.',
+        'message' => publicDatabaseErrorMessage($exception, 'Erreur lors du chargement des donnees equipes.'),
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 }

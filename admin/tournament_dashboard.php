@@ -30,10 +30,10 @@ try {
     $tournamentId = $resolved;
     $tournament = fetchTournamentById($pdo, $tournamentId);
     $stats = countMatchesByStatus($pdo, $tournamentId);
-    $recentMatches = fetchMatches($pdo, null, false, $tournamentId);
+    $recentMatches = fetchMatches($pdo, null, false, $tournamentId, null, true);
 } catch (Throwable $exception) {
     error_log('[Bible_Master] admin/tournament_dashboard.php failed: ' . $exception->getMessage());
-    $dbError = 'Connexion impossible a la base de donnees.';
+    $dbError = publicDatabaseErrorMessage($exception, 'Erreur de chargement du dashboard tournoi.');
 }
 
 $totalMatches = $stats['Programme'] + $stats['En cours'] + $stats['Termine'];
@@ -98,7 +98,7 @@ $totalMatches = $stats['Programme'] + $stats['En cours'] + $stats['Termine'];
             <div class="team"><img src="<?php echo htmlspecialchars((string) $match['team2_logo'], ENT_QUOTES, 'UTF-8'); ?>" alt="Equipe B"><div><?php echo htmlspecialchars($match['team2_name'], ENT_QUOTES, 'UTF-8'); ?></div></div>
         </div>
         <div>
-            <div><?php echo htmlspecialchars((string) $match['match_date'], ENT_QUOTES, 'UTF-8'); ?> - <?php echo htmlspecialchars(substr((string) $match['match_time'], 0, 5), ENT_QUOTES, 'UTF-8'); ?></div>
+            <div><?php echo htmlspecialchars((string) $match['match_date'], ENT_QUOTES, 'UTF-8'); ?> | Phase: <?php echo htmlspecialchars((string) $match['phase'], ENT_QUOTES, 'UTF-8'); ?></div>
             <span class="status <?php echo $match['status'] === 'En cours' ? 'live' : 'pending'; ?>">
                 <?php echo htmlspecialchars((string) $match['status'], ENT_QUOTES, 'UTF-8'); ?>
             </span>

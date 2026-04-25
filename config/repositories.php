@@ -214,6 +214,198 @@ function countRows(PDO $pdo, string $tableName): int
     return (int) $stmt->fetchColumn();
 }
 
+function isValidIsoDate(string $value): bool
+{
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+        return false;
+    }
+
+    [$year, $month, $day] = array_map('intval', explode('-', $value));
+
+    return checkdate($month, $day, $year);
+}
+
+function enumColumnValues(PDO $pdo, string $tableName, string $columnName): array
+{
+    static $cache = [];
+    $cacheKey = strtolower($tableName . '.' . $columnName);
+    if (array_key_exists($cacheKey, $cache)) {
+        return $cache[$cacheKey];
+    }
+
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT COLUMN_TYPE
+             FROM information_schema.columns
+             WHERE table_schema = DATABASE()
+               AND table_name = :table_name
+               AND column_name = :column_name
+             LIMIT 1'
+        );
+        $stmt->execute([
+            ':table_name' => $tableName,
+            ':column_name' => $columnName,
+        ]);
+        $columnType = (string) ($stmt->fetchColumn() ?: '');
+    } catch (Throwable) {
+        $cache[$cacheKey] = [];
+
+        return [];
+    }
+
+    if (!preg_match('/^enum\((.*)\)$/i', $columnType, $matches)) {
+        $cache[$cacheKey] = [];
+
+        return [];
+    }
+
+    $rawValues = (string) ($matches[1] ?? '');
+    preg_match_all("/'((?:\\\\'|[^'])*)'/", $rawValues, $parts);
+    $values = array_map(
+        static fn(string $v): string => str_replace("\\'", "'", $v),
+        $parts[1] ?? []
+    );
+
+    $cache[$cacheKey] = $values;
+
+    return $values;
+}
+
+function matchesColumnSupportsValue(PDO $pdo, string $columnName, string $value): bool
+{
+    $values = enumColumnValues($pdo, 'matches', $columnName);
+    if ($values === []) {
+        // If schema metadata is unavailable, don't block valid flows here.
+        return true;
+    }
+
+    return in_array($value, $values, true);
+}
+
+function supportedMatchPhases(PDO $pdo): array
+{
+    $enumValues = enumColumnValues($pdo, 'matches', 'phase');
+    if ($enumValues !== []) {
+        return array_values(array_unique($enumValues));
+    }
+
+    return ['Poule', 'Quart', 'Demi', 'PetiteFinale', 'Finale'];
+}
+
+function tournamentPoolCount(PDO $pdo, int $tournamentId): int
+{
+    if ($tournamentId <= 0) {
+        return 0;
+    }
+
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM pools WHERE tournament_id = :tournament_id');
+    $stmt->execute([':tournament_id' => $tournamentId]);
+
+    return (int) $stmt->fetchColumn();
+}
+
+function exceptionMessages(Throwable $exception): string
+{
+    $messages = [];
+    $cursor = $exception;
+
+    while ($cursor instanceof Throwable) {
+        $messages[] = (string) $cursor->getMessage();
+        $cursor = $cursor->getPrevious();
+    }
+
+    return strtolower(trim(implode(' | ', $messages)));
+}
+
+function isDatabaseConnectionException(Throwable $exception): bool
+{
+    $messages = exceptionMessages($exception);
+
+    return str_contains($messages, 'impossible de se connecter a la base')
+        || str_contains($messages, 'sqlstate[hy000] [2002]')
+        || str_contains($messages, 'sqlstate[hy000] [1045]')
+        || str_contains($messages, 'connection refused')
+        || str_contains($messages, 'access denied')
+        || str_contains($messages, 'unknown database')
+        || str_contains($messages, 'getaddrinfo')
+        || str_contains($messages, 'name or service not known');
+}
+
+function isDatabaseSchemaException(Throwable $exception): bool
+{
+    $messages = exceptionMessages($exception);
+
+    return str_contains($messages, 'sqlstate[42s22]')
+        || str_contains($messages, 'sqlstate[42s02]')
+        || str_contains($messages, 'sqlstate[42000]')
+        || str_contains($messages, 'unknown column')
+        || str_contains($messages, 'base table or view not found')
+        || str_contains($messages, 'doesn\'t exist')
+        || str_contains($messages, 'syntax error or access violation')
+        || str_contains($messages, 'schema_mismatch');
+}
+
+function isDatabaseDataException(Throwable $exception): bool
+{
+    $messages = exceptionMessages($exception);
+
+    return str_contains($messages, 'sqlstate[23000]')
+        || str_contains($messages, 'sqlstate[22007]')
+        || str_contains($messages, 'sqlstate[hy093]')
+        || str_contains($messages, 'integrity constraint violation')
+        || str_contains($messages, 'cannot add or update a child row')
+        || str_contains($messages, 'foreign key constraint fails')
+        || str_contains($messages, 'check constraint')
+        || str_contains($messages, 'invalid parameter number')
+        || str_contains($messages, 'data truncated')
+        || str_contains($messages, 'incorrect date value')
+        || str_contains($messages, 'incorrect datetime value');
+}
+
+function publicDatabaseErrorMessage(Throwable $exception, string $default = 'Erreur base de donnees.'): string
+{
+    if (isDatabaseConnectionException($exception)) {
+        return 'Connexion impossible a la base de donnees. Verifiez les variables DB_HOST/DB_NAME/DB_USER/DB_PASS (ou MYSQLHOST/MYSQLDATABASE/MYSQLUSER/MYSQLPASSWORD).';
+    }
+
+    if (isDatabaseSchemaException($exception)) {
+        return 'Schema SQL incomplet ou obsolete. Importez database/reinstall_clean.sql (rebuild complet) puis reessayez.';
+    }
+
+    if (isDatabaseDataException($exception)) {
+        return 'Donnees invalides pour ce match (date, equipes, phase ou contraintes SQL).';
+    }
+
+    return $default;
+}
+
+function assertCoreTournamentSchemaReady(PDO $pdo): void
+{
+    $requiredTables = ['admins', 'tournaments', 'teams', 'matches', 'pools', 'pool_teams', 'match_change_logs', 'match_trials'];
+    foreach ($requiredTables as $tableName) {
+        if (!tableExists($pdo, $tableName)) {
+            throw new RuntimeException('schema_mismatch: missing table ' . $tableName);
+        }
+    }
+
+    $requiredColumns = [
+        ['teams', 'tournament_id'],
+        ['teams', 'logo_path'],
+        ['teams', 'logo_mime'],
+        ['teams', 'logo_blob'],
+        ['matches', 'tournament_id'],
+        ['matches', 'phase'],
+        ['matches', 'published'],
+    ];
+
+    foreach ($requiredColumns as $entry) {
+        [$tableName, $columnName] = $entry;
+        if (!columnExists($pdo, $tableName, $columnName)) {
+            throw new RuntimeException('schema_mismatch: missing column ' . $tableName . '.' . $columnName);
+        }
+    }
+}
+
 function ensureDefaultTournamentForLegacyData(PDO $pdo): ?int
 {
     $stmt = $pdo->query('SELECT id FROM tournaments ORDER BY id ASC LIMIT 1');
@@ -237,143 +429,168 @@ function ensureDefaultTournamentForLegacyData(PDO $pdo): ?int
 
 function ensureTournamentSchema(PDO $pdo): void
 {
-    $pdo->exec(
-        'CREATE TABLE IF NOT EXISTS tournaments (
-            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(120) NOT NULL,
-            is_active TINYINT(1) NOT NULL DEFAULT 1,
-            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY uq_tournament_name (name)
-        )'
-    );
-
-    if (!columnExists($pdo, 'teams', 'tournament_id')) {
-        $pdo->exec('ALTER TABLE teams ADD COLUMN tournament_id INT UNSIGNED NULL AFTER id');
+    static $schemaChecked = false;
+    if ($schemaChecked) {
+        return;
     }
 
-    if (!columnExists($pdo, 'teams', 'logo_path')) {
-        $pdo->exec('ALTER TABLE teams ADD COLUMN logo_path VARCHAR(255) NULL AFTER name');
-    }
-
-    if (!columnExists($pdo, 'teams', 'logo_mime')) {
-        $pdo->exec('ALTER TABLE teams ADD COLUMN logo_mime VARCHAR(100) NULL AFTER logo_path');
-    }
-
-    if (!columnExists($pdo, 'teams', 'logo_blob')) {
-        $pdo->exec('ALTER TABLE teams ADD COLUMN logo_blob LONGBLOB NULL AFTER logo_mime');
-    }
-
-    if (!columnExists($pdo, 'matches', 'tournament_id')) {
-        $pdo->exec('ALTER TABLE matches ADD COLUMN tournament_id INT UNSIGNED NULL AFTER id');
-    }
-
-    if (!columnExists($pdo, 'matches', 'phase')) {
-        $pdo->exec("ALTER TABLE matches ADD COLUMN phase ENUM('Poule', 'Quart', 'Demi', 'Finale') NOT NULL DEFAULT 'Poule' AFTER status");
-    }
-
-    $legacyTournamentId = ensureDefaultTournamentForLegacyData($pdo);
-    if ($legacyTournamentId !== null) {
-        $fillTeams = $pdo->prepare('UPDATE teams SET tournament_id = :tournament_id WHERE tournament_id IS NULL');
-        $fillTeams->execute([':tournament_id' => $legacyTournamentId]);
-
-        $fillMatches = $pdo->prepare('UPDATE matches SET tournament_id = :tournament_id WHERE tournament_id IS NULL');
-        $fillMatches->execute([':tournament_id' => $legacyTournamentId]);
-    }
-
-    if (!indexExists($pdo, 'teams', 'idx_teams_tournament_id')) {
-        $pdo->exec('CREATE INDEX idx_teams_tournament_id ON teams (tournament_id)');
-    }
-
-    if (!indexExists($pdo, 'matches', 'idx_matches_tournament_id')) {
-        $pdo->exec('CREATE INDEX idx_matches_tournament_id ON matches (tournament_id)');
-    }
-
-    if (!indexExists($pdo, 'matches', 'idx_matches_phase')) {
-        $pdo->exec('CREATE INDEX idx_matches_phase ON matches (phase)');
-    }
-
-    if (indexExists($pdo, 'teams', 'name')) {
-        $pdo->exec('ALTER TABLE teams DROP INDEX name');
-    }
-
-    if (!indexExists($pdo, 'teams', 'uq_teams_tournament_name')) {
-        $pdo->exec('ALTER TABLE teams ADD UNIQUE KEY uq_teams_tournament_name (tournament_id, name)');
-    }
-
-    if (!constraintExists($pdo, 'teams', 'fk_teams_tournament')) {
+    try {
         $pdo->exec(
-            'ALTER TABLE teams
-             ADD CONSTRAINT fk_teams_tournament FOREIGN KEY (tournament_id)
-             REFERENCES tournaments(id) ON DELETE CASCADE ON UPDATE CASCADE'
-        );
-    }
-
-    if (!constraintExists($pdo, 'matches', 'fk_matches_tournament')) {
-        $pdo->exec(
-            'ALTER TABLE matches
-             ADD CONSTRAINT fk_matches_tournament FOREIGN KEY (tournament_id)
-             REFERENCES tournaments(id) ON DELETE CASCADE ON UPDATE CASCADE'
-        );
-    }
-
-    if (!tableExists($pdo, 'pools')) {
-        $pdo->exec(
-            'CREATE TABLE pools (
+            'CREATE TABLE IF NOT EXISTS tournaments (
                 id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                tournament_id INT UNSIGNED NOT NULL,
-                name VARCHAR(40) NOT NULL,
+                name VARCHAR(120) NOT NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE KEY uq_pools_tournament_name (tournament_id, name),
-                CONSTRAINT fk_pools_tournament FOREIGN KEY (tournament_id)
-                    REFERENCES tournaments(id) ON DELETE CASCADE ON UPDATE CASCADE
+                UNIQUE KEY uq_tournament_name (name)
             )'
         );
+
+        if (!columnExists($pdo, 'teams', 'tournament_id')) {
+            $pdo->exec('ALTER TABLE teams ADD COLUMN tournament_id INT UNSIGNED NULL AFTER id');
+        }
+
+        if (!columnExists($pdo, 'teams', 'logo_path')) {
+            $pdo->exec('ALTER TABLE teams ADD COLUMN logo_path VARCHAR(255) NULL AFTER name');
+        }
+
+        if (!columnExists($pdo, 'teams', 'logo_mime')) {
+            $pdo->exec('ALTER TABLE teams ADD COLUMN logo_mime VARCHAR(100) NULL AFTER logo_path');
+        }
+
+        if (!columnExists($pdo, 'teams', 'logo_blob')) {
+            $pdo->exec('ALTER TABLE teams ADD COLUMN logo_blob LONGBLOB NULL AFTER logo_mime');
+        }
+
+        if (!columnExists($pdo, 'matches', 'tournament_id')) {
+            $pdo->exec('ALTER TABLE matches ADD COLUMN tournament_id INT UNSIGNED NULL AFTER id');
+        }
+
+        if (!columnExists($pdo, 'matches', 'phase')) {
+            $pdo->exec("ALTER TABLE matches ADD COLUMN phase ENUM('Poule', 'Quart', 'Demi', 'Finale') NOT NULL DEFAULT 'Poule' AFTER status");
+        }
+
+        // Keep legacy values compatible while enabling the new small-final phase.
+        $pdo->exec("ALTER TABLE matches MODIFY COLUMN phase ENUM('Poule', 'Quart', 'Demi', 'PetiteFinale', 'Finale') NOT NULL DEFAULT 'Poule'");
+
+        // Match time is no longer entered in the UI, keep a safe default for legacy schema compatibility.
+        $pdo->exec("ALTER TABLE matches MODIFY COLUMN match_time TIME NOT NULL DEFAULT '00:00:00'");
+
+        $legacyTournamentId = ensureDefaultTournamentForLegacyData($pdo);
+        if ($legacyTournamentId !== null) {
+            $fillTeams = $pdo->prepare('UPDATE teams SET tournament_id = :tournament_id WHERE tournament_id IS NULL');
+            $fillTeams->execute([':tournament_id' => $legacyTournamentId]);
+
+            $fillMatches = $pdo->prepare('UPDATE matches SET tournament_id = :tournament_id WHERE tournament_id IS NULL');
+            $fillMatches->execute([':tournament_id' => $legacyTournamentId]);
+        }
+
+        if (!indexExists($pdo, 'teams', 'idx_teams_tournament_id')) {
+            $pdo->exec('CREATE INDEX idx_teams_tournament_id ON teams (tournament_id)');
+        }
+
+        if (!indexExists($pdo, 'matches', 'idx_matches_tournament_id')) {
+            $pdo->exec('CREATE INDEX idx_matches_tournament_id ON matches (tournament_id)');
+        }
+
+        if (!indexExists($pdo, 'matches', 'idx_matches_phase')) {
+            $pdo->exec('CREATE INDEX idx_matches_phase ON matches (phase)');
+        }
+
+        if (indexExists($pdo, 'teams', 'name')) {
+            $pdo->exec('ALTER TABLE teams DROP INDEX name');
+        }
+
+        if (!indexExists($pdo, 'teams', 'uq_teams_tournament_name')) {
+            $pdo->exec('ALTER TABLE teams ADD UNIQUE KEY uq_teams_tournament_name (tournament_id, name)');
+        }
+
+        if (!constraintExists($pdo, 'teams', 'fk_teams_tournament')) {
+            $pdo->exec(
+                'ALTER TABLE teams
+                 ADD CONSTRAINT fk_teams_tournament FOREIGN KEY (tournament_id)
+                 REFERENCES tournaments(id) ON DELETE CASCADE ON UPDATE CASCADE'
+            );
+        }
+
+        if (!constraintExists($pdo, 'matches', 'fk_matches_tournament')) {
+            $pdo->exec(
+                'ALTER TABLE matches
+                 ADD CONSTRAINT fk_matches_tournament FOREIGN KEY (tournament_id)
+                 REFERENCES tournaments(id) ON DELETE CASCADE ON UPDATE CASCADE'
+            );
+        }
+
+        if (!tableExists($pdo, 'pools')) {
+            $pdo->exec(
+                'CREATE TABLE pools (
+                    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    tournament_id INT UNSIGNED NOT NULL,
+                    name VARCHAR(40) NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uq_pools_tournament_name (tournament_id, name),
+                    CONSTRAINT fk_pools_tournament FOREIGN KEY (tournament_id)
+                        REFERENCES tournaments(id) ON DELETE CASCADE ON UPDATE CASCADE
+                )'
+            );
+        }
+
+        if (!tableExists($pdo, 'pool_teams')) {
+            $pdo->exec(
+                'CREATE TABLE pool_teams (
+                    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    pool_id INT UNSIGNED NOT NULL,
+                    team_id INT UNSIGNED NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uq_pool_team (pool_id, team_id),
+                    CONSTRAINT fk_pool_teams_pool FOREIGN KEY (pool_id)
+                        REFERENCES pools(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                    CONSTRAINT fk_pool_teams_team FOREIGN KEY (team_id)
+                        REFERENCES teams(id) ON DELETE CASCADE ON UPDATE CASCADE
+                )'
+            );
+        }
+
+        if (!indexExists($pdo, 'pool_teams', 'uq_pool_teams_team_id')) {
+            $pdo->exec('ALTER TABLE pool_teams ADD UNIQUE KEY uq_pool_teams_team_id (team_id)');
+        }
+
+        if (!tableExists($pdo, 'match_change_logs')) {
+            $pdo->exec(
+                "CREATE TABLE match_change_logs (
+                    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    match_id INT UNSIGNED NOT NULL,
+                    admin_id INT UNSIGNED NOT NULL,
+                    admin_username VARCHAR(50) NOT NULL,
+                    action VARCHAR(50) NOT NULL DEFAULT 'update_match_state',
+                    old_status ENUM('Programme', 'En cours', 'Termine') NULL,
+                    new_status ENUM('Programme', 'En cours', 'Termine') NULL,
+                    old_score_team1 INT UNSIGNED NULL,
+                    new_score_team1 INT UNSIGNED NULL,
+                    old_score_team2 INT UNSIGNED NULL,
+                    new_score_team2 INT UNSIGNED NULL,
+                    old_published TINYINT(1) NULL,
+                    new_published TINYINT(1) NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT fk_match_change_logs_match FOREIGN KEY (match_id)
+                        REFERENCES matches(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                    CONSTRAINT fk_match_change_logs_admin FOREIGN KEY (admin_id)
+                        REFERENCES admins(id) ON DELETE RESTRICT ON UPDATE CASCADE,
+                    INDEX idx_match_change_logs_match_id (match_id),
+                    INDEX idx_match_change_logs_created_at (created_at)
+                )"
+            );
+        }
+
+        ensureMatchTrialsTable($pdo);
+    } catch (Throwable $exception) {
+        // User/read-only DB accounts may not have DDL privileges.
+        // Do not fail page rendering if schema already exists.
+        error_log('[Bible_Master] ensureTournamentSchema skipped: ' . $exception->getMessage());
     }
 
-    if (!tableExists($pdo, 'pool_teams')) {
-        $pdo->exec(
-            'CREATE TABLE pool_teams (
-                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                pool_id INT UNSIGNED NOT NULL,
-                team_id INT UNSIGNED NOT NULL,
-                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE KEY uq_pool_team (pool_id, team_id),
-                CONSTRAINT fk_pool_teams_pool FOREIGN KEY (pool_id)
-                    REFERENCES pools(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                CONSTRAINT fk_pool_teams_team FOREIGN KEY (team_id)
-                    REFERENCES teams(id) ON DELETE CASCADE ON UPDATE CASCADE
-            )'
-        );
-    }
+    assertCoreTournamentSchemaReady($pdo);
 
-    if (!tableExists($pdo, 'match_change_logs')) {
-        $pdo->exec(
-            "CREATE TABLE match_change_logs (
-                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                match_id INT UNSIGNED NOT NULL,
-                admin_id INT UNSIGNED NOT NULL,
-                admin_username VARCHAR(50) NOT NULL,
-                action VARCHAR(50) NOT NULL DEFAULT 'update_match_state',
-                old_status ENUM('Programme', 'En cours', 'Termine') NULL,
-                new_status ENUM('Programme', 'En cours', 'Termine') NULL,
-                old_score_team1 INT UNSIGNED NULL,
-                new_score_team1 INT UNSIGNED NULL,
-                old_score_team2 INT UNSIGNED NULL,
-                new_score_team2 INT UNSIGNED NULL,
-                old_published TINYINT(1) NULL,
-                new_published TINYINT(1) NULL,
-                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                CONSTRAINT fk_match_change_logs_match FOREIGN KEY (match_id)
-                    REFERENCES matches(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                CONSTRAINT fk_match_change_logs_admin FOREIGN KEY (admin_id)
-                    REFERENCES admins(id) ON DELETE RESTRICT ON UPDATE CASCADE,
-                INDEX idx_match_change_logs_match_id (match_id),
-                INDEX idx_match_change_logs_created_at (created_at)
-            )"
-        );
-    }
-
-    ensureMatchTrialsTable($pdo);
+    $schemaChecked = true;
 }
 
 function resolveTournamentId(PDO $pdo, ?int $requestedTournamentId = null): ?int
@@ -431,10 +648,28 @@ function createTournament(PDO $pdo, string $name): ?int
         return null;
     }
 
-    $stmt = $pdo->prepare('INSERT INTO tournaments (name, is_active) VALUES (:name, 1)');
-    $stmt->execute([':name' => $safeName]);
+    try {
+        $stmt = $pdo->prepare('INSERT INTO tournaments (name, is_active) VALUES (:name, 1)');
+        $stmt->execute([':name' => $safeName]);
+    } catch (Throwable) {
+        return null;
+    }
 
     return (int) $pdo->lastInsertId();
+}
+
+function deleteTournament(PDO $pdo, int $tournamentId): bool
+{
+    ensureTournamentSchema($pdo);
+
+    if ($tournamentId <= 0) {
+        return false;
+    }
+
+    $stmt = $pdo->prepare('DELETE FROM tournaments WHERE id = :id');
+    $stmt->execute([':id' => $tournamentId]);
+
+    return $stmt->rowCount() > 0;
 }
 
 function defaultTeamLogoPath(): string
@@ -491,18 +726,110 @@ function createTeam(
         return null;
     }
 
-    $stmt = $pdo->prepare(
-           'INSERT INTO teams (tournament_id, name, logo_path, logo_mime, logo_blob)
-            VALUES (:tournament_id, :name, :logo_path, :logo_mime, :logo_blob)'
-    );
-    $stmt->bindValue(':tournament_id', $tournamentId, PDO::PARAM_INT);
-    $stmt->bindValue(':name', $safeName, PDO::PARAM_STR);
-    $stmt->bindValue(':logo_path', $logoPath, $logoPath === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+    try {
+        $stmt = $pdo->prepare(
+               'INSERT INTO teams (tournament_id, name, logo_path, logo_mime, logo_blob)
+                VALUES (:tournament_id, :name, :logo_path, :logo_mime, :logo_blob)'
+        );
+        $stmt->bindValue(':tournament_id', $tournamentId, PDO::PARAM_INT);
+        $stmt->bindValue(':name', $safeName, PDO::PARAM_STR);
+        $stmt->bindValue(':logo_path', $logoPath, $logoPath === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
         $stmt->bindValue(':logo_mime', $logoMime, $logoMime === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
         $stmt->bindValue(':logo_blob', $logoBlob, $logoBlob === null ? PDO::PARAM_NULL : PDO::PARAM_LOB);
-    $stmt->execute();
+        $stmt->execute();
+    } catch (Throwable) {
+        return null;
+    }
 
     return (int) $pdo->lastInsertId();
+}
+
+function deleteTeam(PDO $pdo, int $tournamentId, int $teamId): bool
+{
+    ensureTournamentSchema($pdo);
+
+    if ($tournamentId <= 0 || $teamId <= 0 || !teamBelongsToTournament($pdo, $teamId, $tournamentId)) {
+        return false;
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $deleteMatches = $pdo->prepare(
+            'DELETE FROM matches
+             WHERE tournament_id = :tournament_id
+               AND (team1_id = :team_id OR team2_id = :team_id)'
+        );
+        $deleteMatches->execute([
+            ':tournament_id' => $tournamentId,
+            ':team_id' => $teamId,
+        ]);
+
+        $deletePoolLinks = $pdo->prepare('DELETE FROM pool_teams WHERE team_id = :team_id');
+        $deletePoolLinks->execute([':team_id' => $teamId]);
+
+        $deleteTeamStmt = $pdo->prepare('DELETE FROM teams WHERE id = :team_id AND tournament_id = :tournament_id');
+        $deleteTeamStmt->execute([
+            ':team_id' => $teamId,
+            ':tournament_id' => $tournamentId,
+        ]);
+
+        $pdo->commit();
+
+        return $deleteTeamStmt->rowCount() > 0;
+    } catch (Throwable) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return false;
+    }
+}
+
+function fetchUnassignedTeams(PDO $pdo, int $tournamentId): array
+{
+    ensureTournamentSchema($pdo);
+
+    $stmt = $pdo->prepare(
+        'SELECT t.id, t.name, t.logo_path,
+                (t.logo_blob IS NOT NULL AND OCTET_LENGTH(t.logo_blob) > 0) AS has_logo_blob
+         FROM teams t
+         LEFT JOIN pool_teams pt ON pt.team_id = t.id
+         WHERE t.tournament_id = :tournament_id
+           AND pt.team_id IS NULL
+         ORDER BY t.name ASC'
+    );
+    $stmt->execute([':tournament_id' => $tournamentId]);
+
+    $rows = $stmt->fetchAll();
+    foreach ($rows as &$row) {
+        $row['logo_path'] = resolveTeamLogoPath(
+            (int) ($row['id'] ?? 0),
+            (string) ($row['logo_path'] ?? ''),
+            (int) ($row['has_logo_blob'] ?? 0) === 1
+        );
+    }
+    unset($row);
+
+    return $rows;
+}
+
+function fetchPoolIdForTeam(PDO $pdo, int $tournamentId, int $teamId): ?int
+{
+    $stmt = $pdo->prepare(
+        'SELECT pt.pool_id
+         FROM pool_teams pt
+         INNER JOIN pools p ON p.id = pt.pool_id
+         WHERE p.tournament_id = :tournament_id
+           AND pt.team_id = :team_id
+         LIMIT 1'
+    );
+    $stmt->execute([
+        ':tournament_id' => $tournamentId,
+        ':team_id' => $teamId,
+    ]);
+    $poolId = $stmt->fetchColumn();
+
+    return $poolId === false ? null : (int) $poolId;
 }
 
 function teamBelongsToTournament(PDO $pdo, int $teamId, int $tournamentId): bool
@@ -556,11 +883,15 @@ function createPool(PDO $pdo, int $tournamentId, string $name): ?int
         return null;
     }
 
-    $stmt = $pdo->prepare('INSERT INTO pools (tournament_id, name) VALUES (:tournament_id, :name)');
-    $stmt->execute([
-        ':tournament_id' => $tournamentId,
-        ':name' => $safeName,
-    ]);
+    try {
+        $stmt = $pdo->prepare('INSERT INTO pools (tournament_id, name) VALUES (:tournament_id, :name)');
+        $stmt->execute([
+            ':tournament_id' => $tournamentId,
+            ':name' => $safeName,
+        ]);
+    } catch (Throwable) {
+        return null;
+    }
 
     return (int) $pdo->lastInsertId();
 }
@@ -589,8 +920,15 @@ function attachTeamToPool(PDO $pdo, int $poolId, int $teamId): bool
         return false;
     }
 
+    $existing = $pdo->prepare('SELECT pool_id FROM pool_teams WHERE team_id = :team_id LIMIT 1');
+    $existing->execute([':team_id' => $teamId]);
+    $existingPool = $existing->fetchColumn();
+    if ($existingPool !== false) {
+        return false;
+    }
+
     $stmt = $pdo->prepare(
-        'INSERT IGNORE INTO pool_teams (pool_id, team_id)
+        'INSERT INTO pool_teams (pool_id, team_id)
          VALUES (:pool_id, :team_id)'
     );
 
@@ -598,6 +936,227 @@ function attachTeamToPool(PDO $pdo, int $poolId, int $teamId): bool
         ':pool_id' => $poolId,
         ':team_id' => $teamId,
     ]);
+}
+
+function areTeamsInSamePool(PDO $pdo, int $tournamentId, int $team1Id, int $team2Id): bool
+{
+    $pool1 = fetchPoolIdForTeam($pdo, $tournamentId, $team1Id);
+    $pool2 = fetchPoolIdForTeam($pdo, $tournamentId, $team2Id);
+
+    return $pool1 !== null && $pool2 !== null && $pool1 === $pool2;
+}
+
+function countPoolPhaseMatchesForPool(PDO $pdo, int $tournamentId, int $poolId, ?string $status = null): int
+{
+    $sql =
+        'SELECT COUNT(*)
+         FROM matches m
+         INNER JOIN pool_teams a ON a.team_id = m.team1_id AND a.pool_id = :pool_id_a
+         INNER JOIN pool_teams b ON b.team_id = m.team2_id AND b.pool_id = :pool_id_b
+         WHERE m.tournament_id = :tournament_id
+           AND m.phase = "Poule"';
+    $params = [
+        ':pool_id_a' => $poolId,
+        ':pool_id_b' => $poolId,
+        ':tournament_id' => $tournamentId,
+    ];
+
+    if ($status !== null) {
+        $sql .= ' AND m.status = :status';
+        $params[':status'] = $status;
+    }
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+
+    return (int) $stmt->fetchColumn();
+}
+
+function fetchPoolStandings(PDO $pdo, int $tournamentId): array
+{
+    ensureTournamentSchema($pdo);
+
+    $poolStmt = $pdo->prepare('SELECT id, name FROM pools WHERE tournament_id = :tournament_id ORDER BY name ASC');
+    $poolStmt->execute([':tournament_id' => $tournamentId]);
+    $pools = $poolStmt->fetchAll();
+
+    $standings = [];
+    $poolNames = [];
+
+    $teamStmt = $pdo->prepare(
+        'SELECT t.id, t.name, pt.pool_id
+         FROM pool_teams pt
+         INNER JOIN pools p ON p.id = pt.pool_id
+         INNER JOIN teams t ON t.id = pt.team_id
+         WHERE p.tournament_id = :tournament_id
+         ORDER BY p.name ASC, t.name ASC'
+    );
+    $teamStmt->execute([':tournament_id' => $tournamentId]);
+
+    foreach ($pools as $pool) {
+        $poolId = (int) ($pool['id'] ?? 0);
+        $poolName = (string) ($pool['name'] ?? 'Sans poule');
+        $poolNames[$poolId] = $poolName;
+        $standings[$poolName] = [];
+    }
+
+    foreach ($teamStmt->fetchAll() as $row) {
+        $poolId = (int) ($row['pool_id'] ?? 0);
+        if (!isset($poolNames[$poolId])) {
+            continue;
+        }
+
+        $poolName = $poolNames[$poolId];
+        $teamId = (int) ($row['id'] ?? 0);
+        $standings[$poolName][$teamId] = [
+            'team_id' => $teamId,
+            'team' => (string) ($row['name'] ?? ''),
+            'played' => 0,
+            'won' => 0,
+            'drawn' => 0,
+            'lost' => 0,
+            'gf' => 0,
+            'ga' => 0,
+            'gd' => 0,
+            'points' => 0,
+        ];
+    }
+
+    $matchesStmt = $pdo->prepare(
+        'SELECT team1_id, team2_id, score_team1, score_team2
+         FROM matches
+         WHERE tournament_id = :tournament_id
+           AND phase = "Poule"
+           AND status = "Termine"'
+    );
+    $matchesStmt->execute([':tournament_id' => $tournamentId]);
+
+    foreach ($matchesStmt->fetchAll() as $match) {
+        $team1Id = (int) ($match['team1_id'] ?? 0);
+        $team2Id = (int) ($match['team2_id'] ?? 0);
+        $poolId1 = fetchPoolIdForTeam($pdo, $tournamentId, $team1Id);
+        $poolId2 = fetchPoolIdForTeam($pdo, $tournamentId, $team2Id);
+
+        if ($poolId1 === null || $poolId2 === null || $poolId1 !== $poolId2 || !isset($poolNames[$poolId1])) {
+            continue;
+        }
+
+        $poolName = $poolNames[$poolId1];
+        if (!isset($standings[$poolName][$team1Id], $standings[$poolName][$team2Id])) {
+            continue;
+        }
+
+        $score1 = (int) ($match['score_team1'] ?? 0);
+        $score2 = (int) ($match['score_team2'] ?? 0);
+
+        $standings[$poolName][$team1Id]['played']++;
+        $standings[$poolName][$team2Id]['played']++;
+        $standings[$poolName][$team1Id]['gf'] += $score1;
+        $standings[$poolName][$team1Id]['ga'] += $score2;
+        $standings[$poolName][$team2Id]['gf'] += $score2;
+        $standings[$poolName][$team2Id]['ga'] += $score1;
+
+        if ($score1 > $score2) {
+            $standings[$poolName][$team1Id]['won']++;
+            $standings[$poolName][$team1Id]['points'] += 3;
+            $standings[$poolName][$team2Id]['lost']++;
+        } elseif ($score2 > $score1) {
+            $standings[$poolName][$team2Id]['won']++;
+            $standings[$poolName][$team2Id]['points'] += 3;
+            $standings[$poolName][$team1Id]['lost']++;
+        } else {
+            $standings[$poolName][$team1Id]['drawn']++;
+            $standings[$poolName][$team2Id]['drawn']++;
+            $standings[$poolName][$team1Id]['points']++;
+            $standings[$poolName][$team2Id]['points']++;
+        }
+
+        $standings[$poolName][$team1Id]['gd'] = $standings[$poolName][$team1Id]['gf'] - $standings[$poolName][$team1Id]['ga'];
+        $standings[$poolName][$team2Id]['gd'] = $standings[$poolName][$team2Id]['gf'] - $standings[$poolName][$team2Id]['ga'];
+    }
+
+    foreach ($standings as $poolName => $rows) {
+        $rows = array_values($rows);
+        usort(
+            $rows,
+            static function (array $a, array $b): int {
+                if ($a['points'] !== $b['points']) {
+                    return $b['points'] <=> $a['points'];
+                }
+                if ($a['gd'] !== $b['gd']) {
+                    return $b['gd'] <=> $a['gd'];
+                }
+                if ($a['gf'] !== $b['gf']) {
+                    return $b['gf'] <=> $a['gf'];
+                }
+
+                return strcmp((string) $a['team'], (string) $b['team']);
+            }
+        );
+
+        foreach ($rows as $idx => &$row) {
+            $row['rank'] = $idx + 1;
+        }
+        unset($row);
+
+        $standings[$poolName] = $rows;
+    }
+
+    return $standings;
+}
+
+function fetchTournamentQualification(PDO $pdo, int $tournamentId): array
+{
+    $standings = fetchPoolStandings($pdo, $tournamentId);
+    if (!$standings) {
+        return [
+            'ready' => false,
+            'qualified_ids' => [],
+            'eliminated_ids' => [],
+            'standings' => [],
+        ];
+    }
+
+    $qualifiedIds = [];
+    $eliminatedIds = [];
+    $ready = true;
+
+    $poolStmt = $pdo->prepare('SELECT id, name FROM pools WHERE tournament_id = :tournament_id');
+    $poolStmt->execute([':tournament_id' => $tournamentId]);
+    $poolRows = $poolStmt->fetchAll();
+
+    $poolIdByName = [];
+    foreach ($poolRows as $poolRow) {
+        $poolIdByName[(string) ($poolRow['name'] ?? '')] = (int) ($poolRow['id'] ?? 0);
+    }
+
+    foreach ($standings as $poolName => $rows) {
+        if (count($rows) < 4) {
+            $ready = false;
+            continue;
+        }
+
+        $poolId = $poolIdByName[$poolName] ?? 0;
+        if ($poolId <= 0 || countPoolPhaseMatchesForPool($pdo, $tournamentId, $poolId, 'Termine') < 6) {
+            $ready = false;
+            continue;
+        }
+
+        $qualifiedIds[] = (int) ($rows[0]['team_id'] ?? 0);
+        $qualifiedIds[] = (int) ($rows[1]['team_id'] ?? 0);
+        $eliminatedIds[] = (int) ($rows[count($rows) - 1]['team_id'] ?? 0);
+        $eliminatedIds[] = (int) ($rows[count($rows) - 2]['team_id'] ?? 0);
+    }
+
+    $qualifiedIds = array_values(array_unique(array_filter($qualifiedIds, static fn(int $id): bool => $id > 0)));
+    $eliminatedIds = array_values(array_unique(array_filter($eliminatedIds, static fn(int $id): bool => $id > 0)));
+
+    return [
+        'ready' => $ready,
+        'qualified_ids' => $qualifiedIds,
+        'eliminated_ids' => $eliminatedIds,
+        'standings' => $standings,
+    ];
 }
 
 function fetchTeamsGroupedByPool(PDO $pdo, int $tournamentId): array
@@ -682,7 +1241,14 @@ function fetchMatchById(PDO $pdo, int $matchId): ?array
     return $row;
 }
 
-function fetchMatches(PDO $pdo, ?string $status = null, bool $onlyPublished = false, ?int $tournamentId = null, ?string $phase = null): array
+function fetchMatches(
+    PDO $pdo,
+    ?string $status = null,
+    bool $onlyPublished = false,
+    ?int $tournamentId = null,
+    ?string $phase = null,
+    bool $orderByNewestFirst = false
+): array
 {
     ensureTournamentSchema($pdo);
 
@@ -723,7 +1289,11 @@ function fetchMatches(PDO $pdo, ?string $status = null, bool $onlyPublished = fa
         $sql .= ' WHERE ' . implode(' AND ', $conditions);
     }
 
-    $sql .= ' ORDER BY m.match_date DESC, m.match_time DESC';
+    if ($orderByNewestFirst) {
+        $sql .= ' ORDER BY m.id DESC';
+    } else {
+        $sql .= ' ORDER BY m.match_date DESC, m.match_time DESC';
+    }
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
@@ -787,27 +1357,199 @@ function createMatch(
     string $matchDate,
     string $matchTime,
     string $status,
-    string $phase = 'Poule'
+    string $phase = 'Poule',
+    ?string &$errorMessage = null
 ): ?int {
     ensureTournamentSchema($pdo);
 
     $allowedStatuses = ['Programme', 'En cours', 'Termine'];
-    $allowedPhases = ['Poule', 'Quart', 'Demi', 'Finale'];
+    $allowedPhases = supportedMatchPhases($pdo);
+    $errorMessage = '';
 
-    if ($team1Id <= 0 || $team2Id <= 0 || $team1Id === $team2Id || $tournamentId <= 0) {
+    if ($tournamentId <= 0) {
+        $errorMessage = 'Tournoi invalide pour la creation du match.';
         return null;
     }
 
-    if (!in_array($status, $allowedStatuses, true) || !in_array($phase, $allowedPhases, true)) {
+    if ($team1Id <= 0 || $team2Id <= 0) {
+        $errorMessage = 'Veuillez selectionner deux equipes valides.';
+        return null;
+    }
+
+    if ($team1Id === $team2Id) {
+        $errorMessage = 'Les deux equipes doivent etre differentes.';
+        return null;
+    }
+
+    if (!isValidIsoDate($matchDate)) {
+        $errorMessage = 'Date de match invalide. Format attendu: YYYY-MM-DD.';
+        return null;
+    }
+
+    if (!preg_match('/^\d{2}:\d{2}:\d{2}$/', trim($matchTime))) {
+        $errorMessage = 'Heure de match invalide. Format attendu: HH:MM:SS.';
+        return null;
+    }
+
+    if (!in_array($status, $allowedStatuses, true)) {
+        $errorMessage = 'Statut de match invalide.';
+        return null;
+    }
+
+    if (!in_array($phase, $allowedPhases, true)) {
+        $errorMessage = 'Phase de match invalide.';
         return null;
     }
 
     if (!teamBelongsToTournament($pdo, $team1Id, $tournamentId) || !teamBelongsToTournament($pdo, $team2Id, $tournamentId)) {
+        $errorMessage = 'Les equipes selectionnees ne sont pas rattachees a ce tournoi.';
         return null;
+    }
+
+    if ($phase === 'Poule') {
+        $poolCount = tournamentPoolCount($pdo, $tournamentId);
+        $legacyNoPoolMode = $poolCount === 0;
+
+        if (!$legacyNoPoolMode && !areTeamsInSamePool($pdo, $tournamentId, $team1Id, $team2Id)) {
+            $errorMessage = 'En phase Poule, les deux equipes doivent appartenir a la meme poule.';
+            return null;
+        }
+
+        $poolId = fetchPoolIdForTeam($pdo, $tournamentId, $team1Id);
+        if (!$legacyNoPoolMode && $poolId === null) {
+            $errorMessage = 'Poule introuvable pour les equipes selectionnees.';
+            return null;
+        }
+
+        if (!$legacyNoPoolMode && countPoolPhaseMatchesForPool($pdo, $tournamentId, $poolId) >= 6) {
+            $errorMessage = 'Le calendrier de cette poule est deja complet (6 matchs).';
+            return null;
+        }
+
+        if (!$legacyNoPoolMode) {
+            $existingPair = $pdo->prepare(
+                'SELECT 1
+                 FROM matches
+                 WHERE tournament_id = :tournament_id
+                   AND phase = "Poule"
+                   AND ((team1_id = :team1_id_a AND team2_id = :team2_id_a)
+                        OR (team1_id = :team1_id_b AND team2_id = :team2_id_b))
+                 LIMIT 1'
+            );
+            $existingPair->execute([
+                ':tournament_id' => $tournamentId,
+                ':team1_id_a' => $team1Id,
+                ':team2_id_a' => $team2Id,
+                ':team1_id_b' => $team2Id,
+                ':team2_id_b' => $team1Id,
+            ]);
+            if ((bool) $existingPair->fetchColumn()) {
+                $errorMessage = 'Cette affiche existe deja dans la phase de poule.';
+                return null;
+            }
+        }
+    }
+
+    if ($phase === 'Demi') {
+        $qualification = fetchTournamentQualification($pdo, $tournamentId);
+        $qualified = $qualification['qualified_ids'] ?? [];
+
+        if (!$qualification['ready']) {
+            $errorMessage = 'Les demi-finales ne sont pas disponibles: terminez la phase de poules.';
+            return null;
+        }
+
+        if (!in_array($team1Id, $qualified, true) || !in_array($team2Id, $qualified, true)) {
+            $errorMessage = 'Seules les equipes qualifiees peuvent jouer les demi-finales.';
+            return null;
+        }
+
+        $semiCount = $pdo->prepare('SELECT COUNT(*) FROM matches WHERE tournament_id = :tournament_id AND phase = "Demi"');
+        $semiCount->execute([':tournament_id' => $tournamentId]);
+        if ((int) $semiCount->fetchColumn() >= 2) {
+            $errorMessage = 'Le tableau des demi-finales est deja complet.';
+            return null;
+        }
+
+        $alreadyInSemi = $pdo->prepare(
+            'SELECT 1
+             FROM matches
+             WHERE tournament_id = :tournament_id
+               AND phase = "Demi"
+                             AND (
+                                        team1_id IN (:team1a, :team2a)
+                                        OR team2_id IN (:team1b, :team2b)
+                             )
+             LIMIT 1'
+        );
+        $alreadyInSemi->bindValue(':tournament_id', $tournamentId, PDO::PARAM_INT);
+                $alreadyInSemi->bindValue(':team1a', $team1Id, PDO::PARAM_INT);
+                $alreadyInSemi->bindValue(':team2a', $team2Id, PDO::PARAM_INT);
+                $alreadyInSemi->bindValue(':team1b', $team1Id, PDO::PARAM_INT);
+                $alreadyInSemi->bindValue(':team2b', $team2Id, PDO::PARAM_INT);
+        $alreadyInSemi->execute();
+        if ((bool) $alreadyInSemi->fetchColumn()) {
+                    $errorMessage = 'Une des equipes est deja engagee dans une demi-finale.';
+            return null;
+        }
+    }
+
+    if ($phase === 'Finale' || $phase === 'PetiteFinale') {
+        $semiStmt = $pdo->prepare(
+            'SELECT team1_id, team2_id, score_team1, score_team2
+             FROM matches
+             WHERE tournament_id = :tournament_id AND phase = "Demi" AND status = "Termine"'
+        );
+        $semiStmt->execute([':tournament_id' => $tournamentId]);
+        $semiMatches = $semiStmt->fetchAll();
+        if (count($semiMatches) !== 2) {
+            $errorMessage = 'Finale/Petite finale indisponible: 2 demi-finales terminees sont requises.';
+            return null;
+        }
+
+        $winners = [];
+        $losers = [];
+        foreach ($semiMatches as $semi) {
+            $s1 = (int) ($semi['score_team1'] ?? 0);
+            $s2 = (int) ($semi['score_team2'] ?? 0);
+            if ($s1 === $s2) {
+                $errorMessage = 'Impossible de generer finale/petite finale: une demi-finale est terminee sur egalite.';
+                return null;
+            }
+
+            $winner = $s1 > $s2 ? (int) $semi['team1_id'] : (int) $semi['team2_id'];
+            $loser = $s1 > $s2 ? (int) $semi['team2_id'] : (int) $semi['team1_id'];
+            $winners[] = $winner;
+            $losers[] = $loser;
+        }
+
+        $expected = $phase === 'Finale' ? $winners : $losers;
+        sort($expected);
+        $selected = [$team1Id, $team2Id];
+        sort($selected);
+        if ($expected !== $selected) {
+            $errorMessage = $phase === 'Finale'
+                ? 'La finale doit opposer les deux vainqueurs des demi-finales.'
+                : 'La petite finale doit opposer les deux perdants des demi-finales.';
+            return null;
+        }
+
+        $phaseCount = $pdo->prepare('SELECT COUNT(*) FROM matches WHERE tournament_id = :tournament_id AND phase = :phase');
+        $phaseCount->execute([
+            ':tournament_id' => $tournamentId,
+            ':phase' => $phase,
+        ]);
+        if ((int) $phaseCount->fetchColumn() >= 1) {
+            $errorMessage = $phase === 'Finale'
+                ? 'La finale existe deja pour ce tournoi.'
+                : 'La petite finale existe deja pour ce tournoi.';
+            return null;
+        }
     }
 
     $scoreTeam1 = $status === 'Programme' ? null : 0;
     $scoreTeam2 = $status === 'Programme' ? null : 0;
+    $safeMatchTime = trim($matchTime) === '' ? '00:00:00' : $matchTime;
 
     $stmt = $pdo->prepare(
         'INSERT INTO matches (tournament_id, team1_id, team2_id, match_date, match_time, status, phase, score_team1, score_team2, published)
@@ -818,12 +1560,26 @@ function createMatch(
     $stmt->bindValue(':team1_id', $team1Id, PDO::PARAM_INT);
     $stmt->bindValue(':team2_id', $team2Id, PDO::PARAM_INT);
     $stmt->bindValue(':match_date', $matchDate, PDO::PARAM_STR);
-    $stmt->bindValue(':match_time', $matchTime, PDO::PARAM_STR);
+    $stmt->bindValue(':match_time', $safeMatchTime, PDO::PARAM_STR);
     $stmt->bindValue(':status', $status, PDO::PARAM_STR);
     $stmt->bindValue(':phase', $phase, PDO::PARAM_STR);
     $stmt->bindValue(':score_team1', $scoreTeam1, $scoreTeam1 === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
     $stmt->bindValue(':score_team2', $scoreTeam2, $scoreTeam2 === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
-    $stmt->execute();
+    try {
+        $stmt->execute();
+    } catch (Throwable $exception) {
+        if (isDatabaseSchemaException($exception)) {
+            $errorMessage = 'Schema SQL obsolete/incomplet: importez database/reinstall_clean.sql puis reessayez.';
+            return null;
+        }
+
+        if (isDatabaseDataException($exception)) {
+            $errorMessage = 'Donnees SQL invalides pour ce match (contraintes FK/ENUM/date).';
+            return null;
+        }
+
+        throw $exception;
+    }
 
     return (int) $pdo->lastInsertId();
 }
@@ -978,10 +1734,11 @@ function defaultTrials(): array
 {
     return [
         ['order' => 1, 'name' => 'Tiree de l epee'],
-        ['order' => 2, 'name' => 'Collectives'],
+        ['order' => 2, 'name' => 'Collective avant mi-temps'],
         ['order' => 3, 'name' => 'Identification'],
         ['order' => 4, 'name' => 'Cascades'],
-        ['order' => 5, 'name' => 'Vrai ou Faux'],
+        ['order' => 5, 'name' => 'Collective apres mi-temps'],
+        ['order' => 6, 'name' => 'Vrai ou Faux'],
     ];
 }
 
@@ -998,13 +1755,15 @@ function fetchOrInitMatchTrials(PDO $pdo, int $matchId): array
     $existingStmt->execute([':match_id' => $matchId]);
     $rows = $existingStmt->fetchAll();
 
+    $defaults = defaultTrials();
+
     if (count($rows) === 0) {
         $insert = $pdo->prepare(
             'INSERT INTO match_trials (match_id, trial_order, trial_name, team1_points, team2_points)
              VALUES (:match_id, :trial_order, :trial_name, 0, 0)'
         );
 
-        foreach (defaultTrials() as $trial) {
+        foreach ($defaults as $trial) {
             $insert->execute([
                 ':match_id' => $matchId,
                 ':trial_order' => (int) $trial['order'],
@@ -1012,6 +1771,36 @@ function fetchOrInitMatchTrials(PDO $pdo, int $matchId): array
             ]);
         }
 
+        $existingStmt->execute([':match_id' => $matchId]);
+        $rows = $existingStmt->fetchAll();
+    }
+
+    $byOrder = [];
+    foreach ($rows as $row) {
+        $byOrder[(int) ($row['trial_order'] ?? 0)] = true;
+    }
+
+    $insertMissing = $pdo->prepare(
+        'INSERT INTO match_trials (match_id, trial_order, trial_name, team1_points, team2_points)
+         VALUES (:match_id, :trial_order, :trial_name, 0, 0)'
+    );
+
+    $hasInserted = false;
+    foreach ($defaults as $trial) {
+        $order = (int) ($trial['order'] ?? 0);
+        if ($order <= 0 || isset($byOrder[$order])) {
+            continue;
+        }
+
+        $insertMissing->execute([
+            ':match_id' => $matchId,
+            ':trial_order' => $order,
+            ':trial_name' => (string) ($trial['name'] ?? ''),
+        ]);
+        $hasInserted = true;
+    }
+
+    if ($hasInserted) {
         $existingStmt->execute([':match_id' => $matchId]);
         $rows = $existingStmt->fetchAll();
     }
@@ -1112,7 +1901,7 @@ function fetchTournamentBracket(PDO $pdo, int $tournamentId): array
 {
     ensureTournamentSchema($pdo);
 
-    $phases = ['Poule', 'Quart', 'Demi', 'Finale'];
+    $phases = supportedMatchPhases($pdo);
     $bracket = [];
 
     foreach ($phases as $phase) {
