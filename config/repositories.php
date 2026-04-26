@@ -20,6 +20,15 @@ function appBasePath(): string
     return $isLocalHost ? '/Bible_Master' : '';
 }
 
+function isLocalHostEnvironment(): bool
+{
+    $hostName = strtolower((string) ($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? ''));
+
+    return $hostName === ''
+        || str_contains($hostName, 'localhost')
+        || str_contains($hostName, '127.0.0.1');
+}
+
 function buildAssetPath(string $relative): string
 {
     $base = appBasePath();
@@ -63,7 +72,10 @@ function normalizeLogoPath(?string $logoPath): string
 {
     $fallback = defaultTeamLogoPath();
     $raw = trim((string) ($logoPath ?? ''));
-    $sharedLogoBaseUrl = rtrim((string) (getenv('TEAM_LOGO_BASE_URL') ?: getenv('LOGO_BASE_URL') ?: 'https://biblemasteradmin.42web.io/'), '/');
+    $configuredSharedLogoBaseUrl = trim((string) (getenv('TEAM_LOGO_BASE_URL') ?: getenv('LOGO_BASE_URL') ?: ''));
+    $sharedLogoBaseUrl = $configuredSharedLogoBaseUrl !== ''
+        ? rtrim($configuredSharedLogoBaseUrl, '/')
+        : (isLocalHostEnvironment() ? '' : 'https://biblemasteradmin.42web.io');
 
     if ($raw === '') {
         return $fallback;
@@ -127,10 +139,13 @@ function normalizeLogoPath(?string $logoPath): string
 
 function teamLogoEndpointPath(int $teamId): string
 {
-    $adminDomain = 'biblemasteradmin.42web.io';
-    $scheme = 'https';
-    
-    return $scheme . '://' . $adminDomain . '/team_logo.php?id=' . $teamId;
+    $configuredEndpointBase = trim((string) (getenv('TEAM_LOGO_ENDPOINT_BASE_URL') ?: getenv('LOGO_ENDPOINT_BASE_URL') ?: ''));
+    if ($configuredEndpointBase !== '') {
+        return rtrim($configuredEndpointBase, '/') . '/team_logo.php?id=' . $teamId;
+    }
+
+    // Default to current app host/path so user app can serve blobs from its own DB.
+    return buildAssetPath('team_logo.php?id=' . $teamId);
 }
 
 function resolveTeamLogoPath(int $teamId, ?string $logoPath, bool $hasBlob): string
@@ -1933,15 +1948,26 @@ function fetchTeamLogoPayload(PDO $pdo, int $teamId): ?array
         return null;
     }
 
-    $blob = $row['logo_blob'] ?? null;
-    $hasBlob = is_string($blob) && $blob !== '';
+    $blobValue = $row['logo_blob'] ?? null;
+    $blob = null;
+
+    if (is_resource($blobValue)) {
+        $streamData = stream_get_contents($blobValue);
+        if (is_string($streamData) && $streamData !== '') {
+            $blob = $streamData;
+        }
+    } elseif (is_string($blobValue) && $blobValue !== '') {
+        $blob = $blobValue;
+    }
+
+    $hasBlob = $blob !== null;
     $mime = trim((string) ($row['logo_mime'] ?? ''));
 
     return [
         'id' => (int) ($row['id'] ?? 0),
         'has_blob' => $hasBlob,
         'mime' => $mime !== '' ? $mime : 'image/png',
-        'blob' => $hasBlob ? $blob : null,
+        'blob' => $blob,
         'logo_path' => normalizeLogoPath((string) ($row['logo_path'] ?? '')),
     ];
 }

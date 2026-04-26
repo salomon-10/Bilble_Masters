@@ -483,6 +483,20 @@ body::after {
     gap: 12px;
 }
 
+.half-time-separator {
+    text-align: center;
+    font-family: "Sora", sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: #ffd8b8;
+    border: 1px dashed rgba(255, 209, 102, 0.42);
+    border-radius: 10px;
+    background: rgba(255, 209, 102, 0.08);
+    padding: 8px 10px;
+}
+
 .trial {
     border: 1px solid rgba(199, 210, 227, 0.16);
     border-radius: var(--r-lg);
@@ -709,6 +723,11 @@ body::after {
     .scoreboard {
         grid-template-columns: 1fr;
         text-align: center;
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        background: linear-gradient(180deg, rgba(17, 28, 48, 0.98) 0%, rgba(17, 28, 48, 0.94) 100%);
+        box-shadow: 0 10px 22px rgba(0, 0, 0, 0.32);
     }
 
     .team,
@@ -722,13 +741,35 @@ body::after {
         flex-direction: row;
     }
 
-    .badge-color {
-        width: 38px;
-        height: 10px;
+    .trial-body {
+        padding: 10px 12px 12px;
     }
 
     .rows {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    .row {
+        grid-template-columns: 30px minmax(0, 1fr) 30px;
+        padding: 8px 6px;
+        gap: 5px;
+    }
+
+    .btn {
+        width: 30px;
+        height: 30px;
+        border-radius: 9px;
+        font-size: 18px;
+    }
+
+    .row .value input {
+        font-size: 18px;
+    }
+
+    .badge-color {
+        width: 38px;
+        height: 10px;
     }
 }
 </style>
@@ -771,7 +812,6 @@ body::after {
 
         <div class="scoreboard">
             <div class="team">
-                <div class="team-sub">Equipe A</div>
                 <div class="team-meta">
                     <div class="badge-color" style="background: var(--team-a)"></div>
                     <div class="team-name"><?php echo htmlspecialchars($teamAName, ENT_QUOTES, 'UTF-8'); ?></div>
@@ -782,7 +822,6 @@ body::after {
                 <div class="vs"><?php echo $status === 'En cours' ? 'Match en cours' : 'Match pilote'; ?></div>
             </div>
             <div class="team right">
-                <div class="team-sub">Equipe B</div>
                 <div class="team-meta">
                     <div class="badge-color" style="background: var(--team-b)"></div>
                     <div class="team-name"><?php echo htmlspecialchars($teamBName, ENT_QUOTES, 'UTF-8'); ?></div>
@@ -826,6 +865,9 @@ body::after {
                             </form> 
                         </div>
                     </div>
+                    <?php if ((int) ($trial['trial_order'] ?? 0) === 3): ?>
+                        <div class="half-time-separator">Mi-temps</div>
+                    <?php endif; ?>
                 <?php endforeach; ?>
             </div>
         </article>

@@ -31,15 +31,32 @@ if (!$payload) {
     exit;
 }
 
-if ((bool) ($payload['has_blob'] ?? false) && isset($payload['blob']) && is_string($payload['blob'])) {
+if ((bool) ($payload['has_blob'] ?? false) && isset($payload['blob'])) {
     $mime = trim((string) ($payload['mime'] ?? 'image/png'));
     if ($mime === '') {
         $mime = 'image/png';
     }
 
+    $binary = null;
+    if (is_resource($payload['blob'])) {
+        $streamData = stream_get_contents($payload['blob']);
+        if (is_string($streamData) && $streamData !== '') {
+            $binary = $streamData;
+        }
+    } elseif (is_string($payload['blob']) && $payload['blob'] !== '') {
+        $binary = $payload['blob'];
+    }
+
+    if ($binary === null) {
+        http_response_code(404);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo 'Logo blob empty.';
+        exit;
+    }
+
     header('Content-Type: ' . $mime);
     header('Cache-Control: public, max-age=86400');
-    echo $payload['blob'];
+    echo $binary;
     exit;
 }
 

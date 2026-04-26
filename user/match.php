@@ -420,6 +420,18 @@ if ($match) {
             border-bottom: 0;
         }
 
+        .halftime-row {
+            text-align: center;
+            font-size: .78rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .95px;
+            color: #f8d4aa;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 179, 71, 0.08);
+            padding: 9px 14px;
+        }
+
         .trial-name {
             font-weight: 700;
             color: #e8efff;
@@ -566,6 +578,9 @@ if ($match) {
                             <div class="trial-name"><?php echo htmlspecialchars((string) $trial['trial_name'], ENT_QUOTES, 'UTF-8'); ?></div>
                             <div class="trial-points right"><?php echo $trial['team1_points'] === null ? '-' : (int) $trial['team1_points']; ?></div>
                         </div>
+                        <?php if ((int) ($trial['trial_order'] ?? 0) === 3): ?>
+                            <div class="halftime-row">Mi-temps</div>
+                        <?php endif; ?>
                     <?php endforeach; ?>
                 </section>
 

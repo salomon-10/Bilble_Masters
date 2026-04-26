@@ -13,7 +13,7 @@
             <h1 id="title">Equipes de la competition</h1>
             <p id="subtitle">Chargement des equipes, poules et progression...</p>
         </div>
-        <a class="btn" href="/user/index.php">Retour matchs</a>
+        <a class="btn" href="index.php">Retour matchs</a>
     </header>
 
     <section class="card">
@@ -35,6 +35,27 @@
 <script>
 const search = new URLSearchParams(window.location.search);
 const tournamentId = Number(search.get('tournament_id') || 0);
+const defaultLogoSrc = new URL('../img/team1.png', window.location.href).toString();
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function withFallbackLogo(rawPath) {
+    const cleaned = String(rawPath || '').trim();
+    return cleaned !== '' ? cleaned : defaultLogoSrc;
+}
+
+function logoMarkup(path, altText) {
+    const source = withFallbackLogo(path);
+    const alt = escapeHtml(altText);
+    return `<img src="${source}" alt="${alt}" loading="lazy" onerror="if(this.dataset.fallbackApplied==='1'){this.style.display='none';return;}this.dataset.fallbackApplied='1';this.src='${defaultLogoSrc}';">`;
+}
 
 function matchScore(match) {
     if (match.score_team1 === null || match.score_team2 === null) {
@@ -68,8 +89,8 @@ function renderTeams(teams, eliminatedIds, qualifiedIds) {
         const item = document.createElement('article');
         item.className = 'team';
         item.innerHTML = `
-            <img src="${team.logo_path}" alt="Logo ${team.name}">
-            <span>${team.name}</span>
+            ${logoMarkup(team.logo_path, `Logo ${team.name}`)}
+            <span>${escapeHtml(team.name)}</span>
             ${isEliminated ? '<strong class="status-tag eliminated">Elimine</strong>' : ''}
             ${!isEliminated && isQualified ? '<strong class="status-tag qualified">Qualifie</strong>' : ''}
         `;
@@ -92,7 +113,7 @@ function renderPools(pools) {
         block.className = 'pool';
 
         const teamTags = teams.length
-            ? teams.map((team) => `<span class="tag">${team.name}</span>`).join('')
+            ? teams.map((team) => `<span class="tag">${escapeHtml(team.name)}</span>`).join('')
             : '<span class="muted">Aucune equipe</span>';
 
         block.innerHTML = `
@@ -123,15 +144,15 @@ function renderBracket(bracket) {
             ? matches.map((match) => `
                 <article class="stage-match">
                     <p class="teams-line">
-                        <img src="${match.team1_logo}" alt="${match.team1_name}">
-                        <span>${match.team1_name}</span>
+                        ${logoMarkup(match.team1_logo, match.team1_name)}
+                        <span>${escapeHtml(match.team1_name)}</span>
                     </p>
                     <p class="teams-line">
-                        <img src="${match.team2_logo}" alt="${match.team2_name}">
-                        <span>${match.team2_name}</span>
+                        ${logoMarkup(match.team2_logo, match.team2_name)}
+                        <span>${escapeHtml(match.team2_name)}</span>
                     </p>
                     <p class="score">${matchScore(match)}</p>
-                    <p class="meta">${matchState(match)} | ${match.match_date}</p>
+                    <p class="meta">${matchState(match)} | ${escapeHtml(match.match_date)}</p>
                 </article>
             `).join('')
             : '<p class="muted">Aucun match</p>';
@@ -145,7 +166,7 @@ function renderBracket(bracket) {
     });
 }
 
-fetch(`/user/team_data.php?tournament_id=${tournamentId}`)
+fetch(`team_data.php?tournament_id=${encodeURIComponent(tournamentId)}`)
     .then(async (response) => {
         const payload = await response.json();
         if (!response.ok || payload.ok !== true) {
