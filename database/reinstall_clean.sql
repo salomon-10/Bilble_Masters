@@ -28,8 +28,13 @@ CREATE TABLE admins (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(50) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'admin',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
+
+INSERT IGNORE INTO admins (username, password_hash, role) VALUES
+('arbitre1', '$2y$12$DpkDYxk5TldDUs21/bQVY.sYdWvSG/H4/mOaFyq0TH7vM9/78s98i', 'arbitre'),
+('arbitre2', '$2y$12$DpkDYxk5TldDUs21/bQVY.sYdWvSG/H4/mOaFyq0TH7vM9/78s98i', 'arbitre');
 
 CREATE TABLE teams (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

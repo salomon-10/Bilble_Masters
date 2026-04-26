@@ -10,6 +10,9 @@ require_once __DIR__ . '/../../config/database.php';
 
 function ensureDefaultAdmin(PDO $pdo): void
 {
+    ensureAdminRoleColumn($pdo);
+    ensureDefaultStaffRoles($pdo);
+
     $bootstrapEnabled = getenv('BIBLE_BOOTSTRAP_ADMIN') === '1';
     if (!$bootstrapEnabled) {
         return;
@@ -35,11 +38,39 @@ function ensureDefaultAdmin(PDO $pdo): void
 
     $passwordHash = password_hash($plainPassword, PASSWORD_DEFAULT);
 
-    $insert = $pdo->prepare('INSERT INTO admins (username, password_hash) VALUES (:username, :password_hash)');
+    $insert = $pdo->prepare('INSERT INTO admins (username, password_hash, role) VALUES (:username, :password_hash, :role)');
     $insert->execute([
         ':username' => $username,
         ':password_hash' => $passwordHash,
+        ':role' => 'admin',
     ]);
+}
+
+function ensureDefaultStaffRoles(PDO $pdo): void
+{
+    $pdo->prepare("UPDATE admins SET role = 'admin' WHERE username = 'admin' AND (role IS NULL OR role = '' OR role <> 'admin')")->execute();
+    $pdo->prepare("UPDATE admins SET role = 'arbitre' WHERE username IN ('arbitre1', 'arbitre2') AND (role IS NULL OR role = '' OR role <> 'arbitre')")->execute();
+}
+
+function ensureAdminRoleColumn(PDO $pdo): void
+{
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM information_schema.columns
+         WHERE table_schema = DATABASE()
+           AND table_name = :table_name
+           AND column_name = :column_name'
+    );
+    $stmt->execute([
+        ':table_name' => 'admins',
+        ':column_name' => 'role',
+    ]);
+
+    if ((int) $stmt->fetchColumn() > 0) {
+        return;
+    }
+
+    $pdo->exec("ALTER TABLE admins ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'admin' AFTER password_hash");
 }
 
 function isProductionEnvironment(): bool
@@ -145,15 +176,51 @@ function loginThrottleKey(string $username): string
     return hash('sha256', $normalized . '|' . ($_SERVER['REMOTE_ADDR'] ?? 'cli'));
 }
 
-function isAdminAuthenticated(): bool
+function currentAdminRole(): string
 {
-    return isset($_SESSION['admin_id']) && is_int($_SESSION['admin_id']);
+    $role = strtolower(trim((string) ($_SESSION['admin_role'] ?? 'admin')));
+
+    return $role !== '' ? $role : 'admin';
 }
 
-function requireAdminAuth(): void
+function normalizeAllowedAdminRoles(string|array|null $allowedRoles): ?array
 {
-    if (!isAdminAuthenticated()) {
-        header('Location: /index.php');
+    if ($allowedRoles === null) {
+        return null;
+    }
+
+    $roles = is_array($allowedRoles) ? $allowedRoles : [$allowedRoles];
+    $roles = array_values(array_unique(array_filter(array_map(
+        static fn(string $role): string => strtolower(trim($role)),
+        $roles
+    ), static fn(string $role): bool => $role !== '')));
+
+    return $roles === [] ? null : $roles;
+}
+
+function isAdminAuthenticated(string|array|null $allowedRoles = null): bool
+{
+    if (!isset($_SESSION['admin_id']) || !is_numeric($_SESSION['admin_id'])) {
+        return false;
+    }
+
+    $roles = normalizeAllowedAdminRoles($allowedRoles);
+    if ($roles === null) {
+        return true;
+    }
+
+    return in_array(currentAdminRole(), $roles, true);
+}
+
+function requireAdminAuth(string|array|null $allowedRoles = null): void
+{
+    if (!isAdminAuthenticated($allowedRoles)) {
+        if (isset($_SESSION['admin_id']) && is_numeric($_SESSION['admin_id'])) {
+            header('Location: ' . redirectAfterLoginForRole(currentAdminRole()));
+            exit;
+        }
+
+        header('Location: /admin/login.php');
         exit;
     }
 }
@@ -163,6 +230,14 @@ function loginAdmin(array $admin): void
     session_regenerate_id(true);
     $_SESSION['admin_id'] = (int) $admin['id'];
     $_SESSION['admin_username'] = (string) $admin['username'];
+    $_SESSION['admin_role'] = strtolower(trim((string) ($admin['role'] ?? 'admin'))) ?: 'admin';
+}
+
+function redirectAfterLoginForRole(string $role): string
+{
+    return strtolower(trim($role)) === 'arbitre'
+        ? '/admin/visibilite.php'
+        : '/admin/dashboard.php';
 }
 
 function logoutAdmin(): void

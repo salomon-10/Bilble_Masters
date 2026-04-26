@@ -6,7 +6,7 @@ require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/csrf.php';
 require_once __DIR__ . '/../config/repositories.php';
 
-requireAdminAuth();
+requireAdminAuth('admin');
 
 $pdo = null;
 $teams = [];

@@ -6,7 +6,7 @@ require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/csrf.php';
 require_once __DIR__ . '/../config/repositories.php';
 
-requireAdminAuth();
+requireAdminAuth(['admin', 'arbitre']);
 
 $allowedStatuses = ['Programme', 'En cours', 'Termine'];
 $message = '';
@@ -242,6 +242,10 @@ try {
                     </div>
                 </div>
             <?php endforeach; ?>
+        </section>
+
+        <section class="card" style="display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;">
+            <a class="btn secondary" href="logout.php">Deconnexion</a>
         </section>
     </main>
 </body>

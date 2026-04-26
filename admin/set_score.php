@@ -6,7 +6,7 @@ require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/csrf.php';
 require_once __DIR__ . '/../config/repositories.php';
 
-requireAdminAuth();
+requireAdminAuth(['admin', 'arbitre']);
 
 $matchId = (int) ($_GET['match_id'] ?? $_POST['match_id'] ?? 0);
 $tournamentId = (int) ($_GET['tournament_id'] ?? $_POST['tournament_id'] ?? 0);
@@ -23,6 +23,13 @@ function respondJson(array $payload, int $status = 200): never
     header('Content-Type: application/json; charset=UTF-8');
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
+}
+
+function isAjaxRequest(): bool
+{
+    $requestedWith = strtolower((string) ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? ''));
+
+    return $requestedWith === 'xmlhttprequest';
 }
 
 function resetMatchTrialsAndTotals(PDO $pdo, int $matchId): void
@@ -102,24 +109,40 @@ if ($matchId <= 0) {
                     $team1Points = (int) $team1Raw;
                     $team2Points = (int) $team2Raw;
 
-                    if (!updateMatchTrial($pdo, $matchId, $trialOrder, $team1Points, $team2Points)) {
+                    $pdo->beginTransaction();
+
+                    try {
+                        if (!updateMatchTrial($pdo, $matchId, $trialOrder, $team1Points, $team2Points)) {
+                            if ($pdo->inTransaction()) {
+                                $pdo->rollBack();
+                            }
+
+                            respondJson([
+                                'ok' => false,
+                                'retryable' => false,
+                                'message' => 'Epreuve introuvable.',
+                            ], 404);
+                        }
+
+                        syncMatchTotalsFromTrials($pdo, $matchId);
+                        $updated = fetchMatchById($pdo, $matchId);
+
+                        $pdo->commit();
+
                         respondJson([
-                            'ok' => false,
-                            'retryable' => false,
-                            'message' => 'Epreuve introuvable.',
-                        ], 404);
+                            'ok' => true,
+                            'message' => 'Epreuve enregistree.',
+                            'score_team1' => (int) (($updated['score_team1'] ?? 0)),
+                            'score_team2' => (int) (($updated['score_team2'] ?? 0)),
+                            'status' => (string) (($updated['status'] ?? 'En cours')),
+                        ]);
+                    } catch (Throwable $exception) {
+                        if ($pdo->inTransaction()) {
+                            $pdo->rollBack();
+                        }
+
+                        throw $exception;
                     }
-
-                    syncMatchTotalsFromTrials($pdo, $matchId);
-                    $updated = fetchMatchById($pdo, $matchId);
-
-                    respondJson([
-                        'ok' => true,
-                        'message' => 'Epreuve enregistree.',
-                        'score_team1' => (int) (($updated['score_team1'] ?? 0)),
-                        'score_team2' => (int) (($updated['score_team2'] ?? 0)),
-                        'status' => (string) (($updated['status'] ?? 'En cours')),
-                    ]);
                 }
 
                 if ($action === 'start_match') {
@@ -189,13 +212,28 @@ if ($matchId <= 0) {
                         $team1Points = (int) $team1Raw;
                         $team2Points = (int) $team2Raw;
 
-                        if (!updateMatchTrial($pdo, $matchId, $trialOrder, $team1Points, $team2Points)) {
-                            $messageType = 'error';
-                            $message = 'Epreuve introuvable ou valeurs invalides.';
-                        } else {
-                            syncMatchTotalsFromTrials($pdo, $matchId);
-                            $messageType = 'success';
-                            $message = 'Epreuve enregistree.';
+                        $pdo->beginTransaction();
+
+                        try {
+                            if (!updateMatchTrial($pdo, $matchId, $trialOrder, $team1Points, $team2Points)) {
+                                if ($pdo->inTransaction()) {
+                                    $pdo->rollBack();
+                                }
+
+                                $messageType = 'error';
+                                $message = 'Epreuve introuvable ou valeurs invalides.';
+                            } else {
+                                syncMatchTotalsFromTrials($pdo, $matchId);
+                                $pdo->commit();
+                                $messageType = 'success';
+                                $message = 'Epreuve enregistree.';
+                            }
+                        } catch (Throwable $exception) {
+                            if ($pdo->inTransaction()) {
+                                $pdo->rollBack();
+                            }
+
+                            throw $exception;
                         }
                     }
                 }
@@ -207,6 +245,15 @@ if ($matchId <= 0) {
         }
     } catch (Throwable $exception) {
         error_log('[Bible_Master] set_score.php failed for match_id=' . $matchId . ': ' . $exception->getMessage());
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isAjaxRequest()) {
+            respondJson([
+                'ok' => false,
+                'retryable' => true,
+                'message' => publicDatabaseErrorMessage($exception, 'Erreur de sauvegarde du score.'),
+            ], 500);
+        }
+
         $dbError = publicDatabaseErrorMessage($exception, 'Erreur de base de donnees lors du chargement du match.');
     }
 }
@@ -945,6 +992,10 @@ function showToast(text) {
 
 const saveTimers = new Map();
 const retryTimers = new Map();
+const inFlightSaves = new Map();
+const pendingSaves = new Map();
+const retryCounts = new Map();
+const MAX_RETRIES = 3;
 
 function setFormState(form, text, isError = false) {
     const state = form.querySelector('.muted-state');
@@ -961,7 +1012,14 @@ function autoSave(form, fromRetry = false) {
         return;
     }
 
+    const trialOrder = form.dataset.trialOrder || String(Date.now());
+    if (inFlightSaves.get(trialOrder)) {
+        pendingSaves.set(trialOrder, true);
+        return;
+    }
+
     const formData = new FormData(form);
+    inFlightSaves.set(trialOrder, true);
 
     setFormState(form, fromRetry ? 'Nouvelle tentative...' : 'Sauvegarde...');
 
@@ -984,6 +1042,7 @@ function autoSave(form, fromRetry = false) {
                 const message = (payload && payload.message) ? payload.message : 'Sauvegarde echouee.';
                 const retryable = payload && payload.retryable === true;
                 if (!retryable) {
+                    retryCounts.delete(trialOrder);
                     setFormState(form, message, true);
                     showToast(message);
                     return;
@@ -992,6 +1051,7 @@ function autoSave(form, fromRetry = false) {
                 throw new Error(message);
             }
 
+            retryCounts.delete(trialOrder);
             const aScore = document.getElementById('aScore');
             const bScore = document.getElementById('bScore');
             if (aScore && bScore) {
@@ -1003,15 +1063,38 @@ function autoSave(form, fromRetry = false) {
             showToast(payload.message || 'Score enregistre');
         })
         .catch((error) => {
-            setFormState(form, 'Echec sauvegarde. Retry...', true);
+            if (pendingSaves.get(trialOrder)) {
+                setFormState(form, 'Nouvelle modification detectee, sauvegarde relancee.', true);
+                showToast(error.message || 'Erreur de sauvegarde');
+                return;
+            }
+
+            const currentRetries = (retryCounts.get(trialOrder) || 0) + 1;
+            retryCounts.set(trialOrder, currentRetries);
+
+            if (currentRetries >= MAX_RETRIES) {
+                retryCounts.delete(trialOrder);
+                setFormState(form, 'Sauvegarde impossible. Verifiez la connexion.', true);
+                showToast(error.message || 'Erreur de sauvegarde');
+                return;
+            }
+
+            setFormState(form, 'Echec sauvegarde. Nouvelle tentative...', true);
             showToast(error.message || 'Erreur de sauvegarde');
 
-            const trialOrder = form.dataset.trialOrder || String(Date.now());
             if (retryTimers.has(trialOrder)) {
                 clearTimeout(retryTimers.get(trialOrder));
             }
-            const retryTimer = setTimeout(() => autoSave(form, true), 2500);
+            const retryTimer = setTimeout(() => autoSave(form, true), 1800);
             retryTimers.set(trialOrder, retryTimer);
+        })
+        .finally(() => {
+            inFlightSaves.delete(trialOrder);
+
+            if (pendingSaves.has(trialOrder)) {
+                pendingSaves.delete(trialOrder);
+                autoSave(form, true);
+            }
         });
 }
 
@@ -1026,6 +1109,11 @@ function queueAutoSave(form) {
     }
 
     const trialOrder = form.dataset.trialOrder || String(Date.now());
+    if (inFlightSaves.get(trialOrder)) {
+        pendingSaves.set(trialOrder, true);
+        return;
+    }
+
     if (saveTimers.has(trialOrder)) {
         clearTimeout(saveTimers.get(trialOrder));
     }

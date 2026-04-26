@@ -17,7 +17,7 @@ try {
 }
 
 if (isAdminAuthenticated()) {
-    header('Location: /admin/dashboard.php');
+    header('Location: ' . redirectAfterLoginForRole(currentAdminRole()));
     exit;
 }
 
@@ -35,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
         $remaining = loginThrottleRemainingSeconds($username);
         $error = 'Trop de tentatives. Reessayez dans ' . max(1, (int) ceil($remaining / 60)) . ' minute(s).';
     } else {
-        $stmt = $pdo->prepare('SELECT id, username, password_hash FROM admins WHERE username = :username LIMIT 1');
+        $stmt = $pdo->prepare('SELECT id, username, password_hash, role FROM admins WHERE username = :username LIMIT 1');
         $stmt->execute([':username' => $username]);
         $admin = $stmt->fetch();
 
@@ -45,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo instanceof PDO) {
         } else {
             clearLoginThrottle($username);
             loginAdmin($admin);
-            header('Location: /admin/dashboard.php');
+            header('Location: ' . redirectAfterLoginForRole((string) ($admin['role'] ?? 'admin')));
             exit;
         }
     }

@@ -105,14 +105,6 @@ function normalizeLogoPath(?string $logoPath): string
         return buildAssetPath($matches[1]);
     }
 
-    if (preg_match('#(?:^|/)(img/teams/[^?]+)$#i', $raw, $matches)) {
-        if ($sharedLogoBaseUrl !== '') {
-            return $sharedLogoBaseUrl . '/' . ltrim($matches[1], '/');
-        }
-
-        return buildAssetPath($matches[1]);
-    }
-
     $legacyPath = ltrim($raw, '/');
     if (str_starts_with($legacyPath, 'Bible_Master/')) {
         $legacyPath = substr($legacyPath, strlen('Bible_Master/'));
@@ -404,6 +396,7 @@ function assertCoreTournamentSchemaReady(PDO $pdo): void
     }
 
     $requiredColumns = [
+        ['admins', 'role'],
         ['teams', 'tournament_id'],
         ['teams', 'logo_path'],
         ['teams', 'logo_mime'],
@@ -459,6 +452,10 @@ function ensureTournamentSchema(PDO $pdo): void
                 UNIQUE KEY uq_tournament_name (name)
             )'
         );
+
+        if (!columnExists($pdo, 'admins', 'role')) {
+            $pdo->exec("ALTER TABLE admins ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'admin' AFTER password_hash");
+        }
 
         if (!columnExists($pdo, 'teams', 'tournament_id')) {
             $pdo->exec('ALTER TABLE teams ADD COLUMN tournament_id INT UNSIGNED NULL AFTER id');
