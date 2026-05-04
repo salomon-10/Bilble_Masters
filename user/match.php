@@ -43,6 +43,20 @@ function statusClass(string $status): string
     };
 }
 
+function trialLabelForOrder(int $order, string $fallback): string
+{
+    $labels = [
+        1 => 'Tiree de l epee',
+        2 => 'Identification',
+        3 => 'Collectives 1',
+        4 => 'Vrai ou Faux',
+        5 => 'Echelons',
+        6 => 'Collectives 2',
+    ];
+
+    return $labels[$order] ?? $fallback;
+}
+
 function teamInitials(string $name): string
 {
     $parts = preg_split('/\s+/', trim($name)) ?: [];
@@ -156,8 +170,10 @@ if ($match) {
             font-family: "Bricolage Grotesque", "Segoe UI", sans-serif;
             min-height: 100vh;
             background:
-                radial-gradient(1200px 500px at -5% -10%, rgba(255, 179, 71, 0.15), transparent 60%),
-                radial-gradient(1200px 600px at 110% -20%, rgba(98, 219, 255, 0.14), transparent 55%),
+                radial-gradient(1200px 500px at -5% -10%, rgba(255, 179, 71, 0.12), transparent 60%),
+                radial-gradient(1200px 600px at 110% -20%, rgba(98, 219, 255, 0.11), transparent 55%),
+                linear-gradient(180deg, rgba(13, 25, 49, 0.62), rgba(8, 18, 37, 0.62)),
+                url("../img/background.png") center / cover no-repeat,
                 linear-gradient(180deg, var(--bg-2), var(--bg-1));
             padding: 22px;
         }
@@ -188,6 +204,12 @@ if ($match) {
             padding: 12px 14px;
         }
 
+        .toolbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
         .back-link {
             text-decoration: none;
             color: var(--text);
@@ -214,6 +236,29 @@ if ($match) {
             border-radius: 999px;
             border: 1px solid var(--line);
             background: rgba(255, 255, 255, 0.03);
+        }
+
+        .fullscreen-btn {
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            padding: 8px 12px;
+            font-size: .8rem;
+            font-weight: 700;
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.04);
+            cursor: pointer;
+            transition: transform .2s ease, border-color .2s ease;
+        }
+
+        .fullscreen-btn:hover {
+            transform: translateY(-1px);
+            border-color: rgba(255, 255, 255, 0.28);
+        }
+
+        .fullscreen-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+            transform: none;
         }
 
         .pulse {
@@ -317,9 +362,9 @@ if ($match) {
         }
 
         .logo-emblem {
-            width: 86px;
-            height: 86px;
-            border-radius: 18px;
+            width: 170px;
+            height: 170px;
+            border-radius: 28px;
             border: 1px solid var(--line);
             overflow: hidden;
             background: rgba(255, 255, 255, 0.04);
@@ -342,7 +387,7 @@ if ($match) {
             place-items: center;
             font-weight: 800;
             color: #e8f1ff;
-            font-size: 1.1rem;
+            font-size: 1.6rem;
             background: linear-gradient(140deg, rgba(255, 179, 71, .2), rgba(98, 219, 255, .2));
         }
 
@@ -466,6 +511,12 @@ if ($match) {
                 gap: 14px;
             }
 
+            .logo-emblem {
+                width: 145px;
+                height: 145px;
+                border-radius: 26px;
+            }
+
             .score-center {
                 border: 1px solid var(--line);
                 border-radius: 12px;
@@ -476,6 +527,22 @@ if ($match) {
         @media (max-width: 560px) {
             body {
                 padding: 12px;
+            }
+
+            .logo-emblem {
+                width: 120px;
+                height: 120px;
+                border-radius: 22px;
+            }
+
+            .toolbar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .toolbar-actions {
+                justify-content: space-between;
+                width: 100%;
             }
 
             .toolbar,
@@ -500,7 +567,10 @@ if ($match) {
     <main class="arena">
         <header class="toolbar">
             <a class="back-link" href="index.php">Retour dashboard</a>
-            <div class="refresh-chip"><span class="pulse"></span>Rafraichissement auto: <strong id="refreshCountdown">5s</strong></div>
+            <div class="toolbar-actions">
+                <button class="fullscreen-btn" type="button" id="fullscreenToggle">Plein ecran</button>
+                <div class="refresh-chip"><span class="pulse"></span>Rafraichissement auto: <strong id="refreshCountdown">5s</strong></div>
+            </div>
         </header>
 
         <?php if ($dbError !== ''): ?>
@@ -575,7 +645,7 @@ if ($match) {
                     <?php foreach ($trials as $trial): ?>
                         <div class="trial-row">
                             <div class="trial-points left"><?php echo $trial['team2_points'] === null ? '-' : (int) $trial['team2_points']; ?></div>
-                            <div class="trial-name"><?php echo htmlspecialchars((string) $trial['trial_name'], ENT_QUOTES, 'UTF-8'); ?></div>
+                            <div class="trial-name"><?php echo htmlspecialchars(trialLabelForOrder((int) ($trial['trial_order'] ?? 0), (string) $trial['trial_name']), ENT_QUOTES, 'UTF-8'); ?></div>
                             <div class="trial-points right"><?php echo $trial['team1_points'] === null ? '-' : (int) $trial['team1_points']; ?></div>
                         </div>
                         <?php if ((int) ($trial['trial_order'] ?? 0) === 3): ?>
@@ -590,14 +660,77 @@ if ($match) {
     </main>
 </body>
 <script>
+    const fullscreenToggle = document.getElementById('fullscreenToggle');
     const refreshLabel = document.getElementById('refreshCountdown');
     let seconds = 5;
+    let refreshInFlight = false;
+
+    const updateFullscreenLabel = () => {
+        if (!fullscreenToggle) {
+            return;
+        }
+        const active = Boolean(document.fullscreenElement);
+        fullscreenToggle.textContent = active ? 'Quitter plein ecran' : 'Plein ecran';
+    };
+
+    if (fullscreenToggle) {
+        if (!document.fullscreenEnabled) {
+            fullscreenToggle.disabled = true;
+            fullscreenToggle.textContent = 'Plein ecran indisponible';
+        } else {
+            fullscreenToggle.addEventListener('click', async () => {
+                if (!document.fullscreenElement) {
+                    await document.documentElement.requestFullscreen();
+                } else {
+                    await document.exitFullscreen();
+                }
+            });
+            document.addEventListener('fullscreenchange', updateFullscreenLabel);
+            updateFullscreenLabel();
+        }
+    }
+
+    const replaceShell = (selector, doc) => {
+        const current = document.querySelector(selector);
+        const incoming = doc.querySelector(selector);
+        if (current && incoming) {
+            current.replaceWith(incoming);
+        }
+    };
+
+    const softRefresh = async () => {
+        if (refreshInFlight) {
+            return;
+        }
+        refreshInFlight = true;
+
+        try {
+            const response = await fetch(window.location.href, { cache: 'no-store' });
+            if (!response.ok) {
+                throw new Error('refresh_failed');
+            }
+            const html = await response.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            replaceShell('.match-shell', doc);
+            replaceShell('.error-shell', doc);
+        } catch (error) {
+            window.location.reload();
+        } finally {
+            refreshInFlight = false;
+        }
+    };
 
     const tick = () => {
         seconds -= 1;
         if (seconds <= 0) {
-            window.location.reload();
-            return;
+            if (document.fullscreenElement) {
+                seconds = 5;
+                softRefresh();
+            } else {
+                window.location.reload();
+                return;
+            }
         }
 
         if (refreshLabel) {
@@ -606,9 +739,5 @@ if ($match) {
     };
 
     setInterval(tick, 1000);
-
-    setInterval(() => {
-        window.location.reload();
-    }, 5000);
 </script>
 </html>

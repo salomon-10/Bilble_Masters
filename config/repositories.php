@@ -1746,11 +1746,11 @@ function defaultTrials(): array
 {
     return [
         ['order' => 1, 'name' => 'Tiree de l epee'],
-        ['order' => 2, 'name' => 'Collective avant mi-temps'],
-        ['order' => 3, 'name' => 'Identification'],
-        ['order' => 4, 'name' => 'Cascades'],
-        ['order' => 5, 'name' => 'Collective apres mi-temps'],
-        ['order' => 6, 'name' => 'Vrai ou Faux'],
+        ['order' => 2, 'name' => 'Identification'],
+        ['order' => 3, 'name' => 'Collectives 1'],
+        ['order' => 4, 'name' => 'Vrai ou Faux'],
+        ['order' => 5, 'name' => 'Echelons'],
+        ['order' => 6, 'name' => 'Collectives 2'],
     ];
 }
 
