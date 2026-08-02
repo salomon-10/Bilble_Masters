@@ -263,14 +263,6 @@ $teamBName = $match ? (string) $match['team2_name'] : 'Equipe B';
 $scoreA = $match && $match['score_team1'] !== null ? (int) $match['score_team1'] : 0;
 $scoreB = $match && $match['score_team2'] !== null ? (int) $match['score_team2'] : 0;
 $status = $match ? (string) $match['status'] : 'Programme';
-$trialLabelsByOrder = [
-    1 => 'Tiree de l epee',
-    2 => 'Identification',
-    3 => 'Collectives 1',
-    4 => 'Vrai ou Faux',
-    5 => 'Echelons',
-    6 => 'Collectives 2',
-];
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -893,7 +885,7 @@ body::after {
                     <div class="trial">
                         <?php
                         $trialOrder = (int) ($trial['trial_order'] ?? 0);
-                        $trialLabel = $trialLabelsByOrder[$trialOrder] ?? (string) ($trial['trial_name'] ?? '');
+                        $trialLabel = (string) ($trial['trial_name'] ?? '');
                         ?>
                         <div class="trial-head">
                             <div class="trial-title"><?php echo htmlspecialchars($trialLabel, ENT_QUOTES, 'UTF-8'); ?></div>

@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS matches (
     match_time TIME NOT NULL DEFAULT '00:00:00',
     status ENUM('Programme', 'En cours', 'Termine') NOT NULL DEFAULT 'Programme',
     phase ENUM('Poule', 'Quart', 'Demi', 'PetiteFinale', 'Finale') NOT NULL DEFAULT 'Poule',
+    trial_template VARCHAR(40) NOT NULL DEFAULT 'legacy',
     score_team1 INT UNSIGNED NULL,
     score_team2 INT UNSIGNED NULL,
     published TINYINT(1) NOT NULL DEFAULT 1,

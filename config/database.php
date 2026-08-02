@@ -82,9 +82,11 @@ function dbConfig(): array
     }
 
     return [
-        'host' => $host !== '' ? $host : 'localhost',
+        // Use TCP locally: it avoids a dependency on the PHP/MySQL socket path.
+        'host' => $host !== '' ? $host : '127.0.0.1',
         'port' => $port !== '' ? $port : '3306',
-        'name' => $name !== '' ? $name : 'bible_master',
+        // Local copy imported from production for functional testing.
+        'name' => $name !== '' ? $name : 'if0_41655329_bible_master',
         'user' => $user !== '' ? $user : 'root',
         'pass' => $pass,
     ];

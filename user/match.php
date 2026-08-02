@@ -43,20 +43,6 @@ function statusClass(string $status): string
     };
 }
 
-function trialLabelForOrder(int $order, string $fallback): string
-{
-    $labels = [
-        1 => 'Tiree de l epee',
-        2 => 'Identification',
-        3 => 'Collectives 1',
-        4 => 'Vrai ou Faux',
-        5 => 'Echelons',
-        6 => 'Collectives 2',
-    ];
-
-    return $labels[$order] ?? $fallback;
-}
-
 function teamInitials(string $name): string
 {
     $parts = preg_split('/\s+/', trim($name)) ?: [];
@@ -645,7 +631,7 @@ if ($match) {
                     <?php foreach ($trials as $trial): ?>
                         <div class="trial-row">
                             <div class="trial-points left"><?php echo $trial['team2_points'] === null ? '-' : (int) $trial['team2_points']; ?></div>
-                            <div class="trial-name"><?php echo htmlspecialchars(trialLabelForOrder((int) ($trial['trial_order'] ?? 0), (string) $trial['trial_name']), ENT_QUOTES, 'UTF-8'); ?></div>
+                            <div class="trial-name"><?php echo htmlspecialchars((string) ($trial['trial_name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></div>
                             <div class="trial-points right"><?php echo $trial['team1_points'] === null ? '-' : (int) $trial['team1_points']; ?></div>
                         </div>
                         <?php if ((int) ($trial['trial_order'] ?? 0) === 3): ?>

@@ -209,6 +209,30 @@ function constraintExists(PDO $pdo, string $tableName, string $constraintName): 
     return (int) $stmt->fetchColumn() > 0;
 }
 
+function tablesSupportForeignKeys(PDO $pdo, array $tableNames): bool
+{
+    $tableNames = array_values(array_unique(array_filter(
+        array_map(static fn(mixed $name): string => trim((string) $name), $tableNames),
+        static fn(string $name): bool => $name !== ''
+    )));
+
+    if ($tableNames === []) {
+        return false;
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($tableNames), '?'));
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM information_schema.tables
+         WHERE table_schema = DATABASE()
+           AND table_name IN (' . $placeholders . ')
+           AND ENGINE = "InnoDB"'
+    );
+    $stmt->execute($tableNames);
+
+    return (int) $stmt->fetchColumn() === count($tableNames);
+}
+
 function countRows(PDO $pdo, string $tableName): int
 {
     $safeTable = preg_replace('/[^a-zA-Z0-9_]/', '', $tableName);
@@ -403,6 +427,7 @@ function assertCoreTournamentSchemaReady(PDO $pdo): void
         ['teams', 'logo_blob'],
         ['matches', 'tournament_id'],
         ['matches', 'phase'],
+        ['matches', 'trial_template'],
         ['matches', 'published'],
     ];
 
@@ -481,6 +506,10 @@ function ensureTournamentSchema(PDO $pdo): void
             $pdo->exec("ALTER TABLE matches ADD COLUMN phase ENUM('Poule', 'Quart', 'Demi', 'Finale') NOT NULL DEFAULT 'Poule' AFTER status");
         }
 
+        if (!columnExists($pdo, 'matches', 'trial_template')) {
+            $pdo->exec("ALTER TABLE matches ADD COLUMN trial_template VARCHAR(40) NOT NULL DEFAULT 'legacy' AFTER phase");
+        }
+
         // Keep legacy values compatible while enabling the new small-final phase.
         $pdo->exec("ALTER TABLE matches MODIFY COLUMN phase ENUM('Poule', 'Quart', 'Demi', 'PetiteFinale', 'Finale') NOT NULL DEFAULT 'Poule'");
 
@@ -516,7 +545,8 @@ function ensureTournamentSchema(PDO $pdo): void
             $pdo->exec('ALTER TABLE teams ADD UNIQUE KEY uq_teams_tournament_name (tournament_id, name)');
         }
 
-        if (!constraintExists($pdo, 'teams', 'fk_teams_tournament')) {
+        if (!constraintExists($pdo, 'teams', 'fk_teams_tournament')
+            && tablesSupportForeignKeys($pdo, ['teams', 'tournaments'])) {
             $pdo->exec(
                 'ALTER TABLE teams
                  ADD CONSTRAINT fk_teams_tournament FOREIGN KEY (tournament_id)
@@ -524,7 +554,8 @@ function ensureTournamentSchema(PDO $pdo): void
             );
         }
 
-        if (!constraintExists($pdo, 'matches', 'fk_matches_tournament')) {
+        if (!constraintExists($pdo, 'matches', 'fk_matches_tournament')
+            && tablesSupportForeignKeys($pdo, ['matches', 'tournaments'])) {
             $pdo->exec(
                 'ALTER TABLE matches
                  ADD CONSTRAINT fk_matches_tournament FOREIGN KEY (tournament_id)
@@ -533,32 +564,35 @@ function ensureTournamentSchema(PDO $pdo): void
         }
 
         if (!tableExists($pdo, 'pools')) {
+            $poolTournamentConstraint = tablesSupportForeignKeys($pdo, ['tournaments'])
+                ? ', CONSTRAINT fk_pools_tournament FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE ON UPDATE CASCADE'
+                : '';
             $pdo->exec(
                 'CREATE TABLE pools (
                     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                     tournament_id INT UNSIGNED NOT NULL,
                     name VARCHAR(40) NOT NULL,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE KEY uq_pools_tournament_name (tournament_id, name),
-                    CONSTRAINT fk_pools_tournament FOREIGN KEY (tournament_id)
-                        REFERENCES tournaments(id) ON DELETE CASCADE ON UPDATE CASCADE
-                )'
+                    UNIQUE KEY uq_pools_tournament_name (tournament_id, name)'
+                    . $poolTournamentConstraint .
+                ')'
             );
         }
 
         if (!tableExists($pdo, 'pool_teams')) {
+            $poolTeamsConstraints = tablesSupportForeignKeys($pdo, ['pools', 'teams'])
+                ? ', CONSTRAINT fk_pool_teams_pool FOREIGN KEY (pool_id) REFERENCES pools(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                   CONSTRAINT fk_pool_teams_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE ON UPDATE CASCADE'
+                : '';
             $pdo->exec(
                 'CREATE TABLE pool_teams (
                     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                     pool_id INT UNSIGNED NOT NULL,
                     team_id INT UNSIGNED NOT NULL,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE KEY uq_pool_team (pool_id, team_id),
-                    CONSTRAINT fk_pool_teams_pool FOREIGN KEY (pool_id)
-                        REFERENCES pools(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                    CONSTRAINT fk_pool_teams_team FOREIGN KEY (team_id)
-                        REFERENCES teams(id) ON DELETE CASCADE ON UPDATE CASCADE
-                )'
+                    UNIQUE KEY uq_pool_team (pool_id, team_id)'
+                    . $poolTeamsConstraints .
+                ')'
             );
         }
 
@@ -567,6 +601,10 @@ function ensureTournamentSchema(PDO $pdo): void
         }
 
         if (!tableExists($pdo, 'match_change_logs')) {
+            $matchLogConstraints = tablesSupportForeignKeys($pdo, ['matches', 'admins'])
+                ? ', CONSTRAINT fk_match_change_logs_match FOREIGN KEY (match_id) REFERENCES matches(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                   CONSTRAINT fk_match_change_logs_admin FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE RESTRICT ON UPDATE CASCADE'
+                : '';
             $pdo->exec(
                 "CREATE TABLE match_change_logs (
                     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -583,13 +621,9 @@ function ensureTournamentSchema(PDO $pdo): void
                     old_published TINYINT(1) NULL,
                     new_published TINYINT(1) NULL,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    CONSTRAINT fk_match_change_logs_match FOREIGN KEY (match_id)
-                        REFERENCES matches(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                    CONSTRAINT fk_match_change_logs_admin FOREIGN KEY (admin_id)
-                        REFERENCES admins(id) ON DELETE RESTRICT ON UPDATE CASCADE,
                     INDEX idx_match_change_logs_match_id (match_id),
                     INDEX idx_match_change_logs_created_at (created_at)
-                )"
+                )" . $matchLogConstraints
             );
         }
 
@@ -1220,7 +1254,7 @@ function fetchMatchById(PDO $pdo, int $matchId): ?array
     ensureTournamentSchema($pdo);
 
     $stmt = $pdo->prepare(
-        'SELECT m.id, m.tournament_id, m.team1_id, m.team2_id, m.match_date, m.match_time, m.status, m.phase,
+        'SELECT m.id, m.tournament_id, m.team1_id, m.team2_id, m.match_date, m.match_time, m.status, m.phase, m.trial_template,
                 m.score_team1, m.score_team2, m.published,
                 t1.name AS team1_name, t2.name AS team2_name,
                 t1.logo_path AS team1_logo,
@@ -1264,7 +1298,7 @@ function fetchMatches(
 {
     ensureTournamentSchema($pdo);
 
-    $sql = 'SELECT m.id, m.tournament_id, m.team1_id, m.team2_id, m.match_date, m.match_time, m.status, m.phase,
+    $sql = 'SELECT m.id, m.tournament_id, m.team1_id, m.team2_id, m.match_date, m.match_time, m.status, m.phase, m.trial_template,
                    m.score_team1, m.score_team2, m.published,
                    t1.name AS team1_name, t2.name AS team2_name,
                    t1.logo_path AS team1_logo,
@@ -1562,10 +1596,11 @@ function createMatch(
     $scoreTeam1 = $status === 'Programme' ? null : 0;
     $scoreTeam2 = $status === 'Programme' ? null : 0;
     $safeMatchTime = trim($matchTime) === '' ? '00:00:00' : $matchTime;
+    $trialTemplate = $phase === 'Demi' ? 'demi_2026' : 'legacy';
 
     $stmt = $pdo->prepare(
-        'INSERT INTO matches (tournament_id, team1_id, team2_id, match_date, match_time, status, phase, score_team1, score_team2, published)
-         VALUES (:tournament_id, :team1_id, :team2_id, :match_date, :match_time, :status, :phase, :score_team1, :score_team2, 1)'
+        'INSERT INTO matches (tournament_id, team1_id, team2_id, match_date, match_time, status, phase, trial_template, score_team1, score_team2, published)
+         VALUES (:tournament_id, :team1_id, :team2_id, :match_date, :match_time, :status, :phase, :trial_template, :score_team1, :score_team2, 1)'
     );
 
     $stmt->bindValue(':tournament_id', $tournamentId, PDO::PARAM_INT);
@@ -1575,6 +1610,7 @@ function createMatch(
     $stmt->bindValue(':match_time', $safeMatchTime, PDO::PARAM_STR);
     $stmt->bindValue(':status', $status, PDO::PARAM_STR);
     $stmt->bindValue(':phase', $phase, PDO::PARAM_STR);
+    $stmt->bindValue(':trial_template', $trialTemplate, PDO::PARAM_STR);
     $stmt->bindValue(':score_team1', $scoreTeam1, $scoreTeam1 === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
     $stmt->bindValue(':score_team2', $scoreTeam2, $scoreTeam2 === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
     try {
@@ -1754,6 +1790,22 @@ function defaultTrials(): array
     ];
 }
 
+function trialsForTemplate(string $template): array
+{
+    if ($template === 'demi_2026') {
+        return [
+            ['order' => 1, 'name' => 'Tiree de l epee'],
+            ['order' => 2, 'name' => 'Collectives'],
+            ['order' => 3, 'name' => 'Calcul mental'],
+            ['order' => 4, 'name' => 'Recit verset'],
+            ['order' => 5, 'name' => 'Decouverte (oui/non)'],
+            ['order' => 6, 'name' => 'Eclairs'],
+        ];
+    }
+
+    return defaultTrials();
+}
+
 function fetchOrInitMatchTrials(PDO $pdo, int $matchId): array
 {
     ensureTournamentSchema($pdo);
@@ -1767,7 +1819,10 @@ function fetchOrInitMatchTrials(PDO $pdo, int $matchId): array
     $existingStmt->execute([':match_id' => $matchId]);
     $rows = $existingStmt->fetchAll();
 
-    $defaults = defaultTrials();
+    $matchStmt = $pdo->prepare('SELECT trial_template FROM matches WHERE id = :match_id LIMIT 1');
+    $matchStmt->execute([':match_id' => $matchId]);
+    $template = (string) ($matchStmt->fetchColumn() ?: 'legacy');
+    $defaults = trialsForTemplate($template);
 
     if (count($rows) === 0) {
         $insert = $pdo->prepare(
